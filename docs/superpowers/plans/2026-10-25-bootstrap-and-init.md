@@ -6,7 +6,7 @@
 
 **Architecture:** Un pacchetto Python `src/beancount_mcp/` con CLI basata su `argparse`. Il comando `init` è isolato in `init.py` e usa solo `pathlib`/`os`, senza dipendere da Beancount. Un `server.py` minimo espone un `MCPServer` senza tool, pronto per le milestone successive. La configurazione del percorso del ledger sta in `config.py`.
 
-**Tech Stack:** Python >= 3.11 (sviluppo su 3.13), uv, hatchling, beancount 3.2.3, beanquery 0.2.0, mcp 2.3.0, ruff, mypy strict, pytest (rimandato).
+**Tech Stack:** Python >= 3.11 (sviluppo su 3.13), uv, hatchling, beancount 3.2.3, beanquery 0.2.0, mcp 2.3.0, ruff, mypy strict, pytest.
 
 **Spec:** `spec.md`
 
@@ -20,7 +20,7 @@
 - Versioni esatte: `beancount==3.2.3`, `beanquery==0.2.0`, `mcp==2.3.0`.
 - MCP SDK v2 usa `MCPServer`, non `FastMCP`.
 - Trasporto predefinito: `stdio`.
-- Test automatici rimandati su richiesta esplicita dell'utente; la verifica di questo incremento è manuale e riproducibile. La deviazione va annotata in `docs/decisions.md`.
+- Test automatici scritti alla fine di ogni incremento, su richiesta esplicita dell'utente; la verifica manuale resta come controllo aggiuntivo. La deviazione dal TDD va annotata in `docs/decisions.md`.
 
 ## Review Focus
 
@@ -423,7 +423,7 @@ Deve contenere, con data 2026-10-25:
 5. Build backend hatchling; CLI con `argparse`.
 6. `init` richiede `--currency`; il titolo predefinito è `"Beancount MCP Ledger"`; la direttiva `open` usa la data odierna e non vincola valute.
 7. `init` rifiuta symlink e file non vuoti; un file esistente vuoto è accettato.
-8. Test automatici rimandati su richiesta esplicita dell'utente; la specifica prevede TDD e questa deviazione va recuperata prima della chiusura di M1.
+8. Test automatici scritti alla fine dell'incremento, non in TDD, su richiesta esplicita dell'utente.
 9. CI rimandata su richiesta esplicita dell'utente; la specifica la prevede in M0 e va aggiunta prima della chiusura della milestone.
 
 - [x] **Step 2: Aggiornare `README.md`**
@@ -451,11 +451,66 @@ git commit -m "docs(M0): record technical decisions and usage"
 
 ---
 
+### Task 6: Test dell'incremento
+
+**Files:**
+- Create: `tests/conftest.py`
+- Create: `tests/unit/test_config.py`
+- Create: `tests/unit/test_init.py`
+- Create: `tests/unit/test_cli.py`
+- Create: `tests/unit/test_server.py`
+- Create: `tests/integration/test_init_ledger.py`
+- Modify: `pyproject.toml` (configurazione pytest)
+
+**Interfaces:**
+- Consumes: `resolve_ledger_path`, `create_ledger`, `render_main_ledger`, `cli.main`, `server.create_server`.
+- Produces: suite pytest eseguibile con `uv run pytest`, senza client MCP esterni.
+
+- [x] **Step 1: Scrivere i test unitari**
+
+Coprire: precedenza argomento/env/default, espansione `~`, path relativi, symlink non risolti; contenuto esatto del ledger, normalizzazione e rifiuto valute, rifiuto file non vuoti/symlink/non regolari, collisione `inbox.bean`, file vuoti accettati con mode preservato, umask, creazione directory, fallimento di `os.replace` senza file parziali; codici di uscita CLI e messaggi per ledger mancante; nome e versione del server MCP.
+
+- [x] **Step 2: Scrivere il test di integrazione**
+
+`init` produce un ledger caricabile da Beancount: zero errori, una direttiva `open`, `operating_currency` e titolo attesi.
+
+- [x] **Step 3: Eseguire la suite**
+
+```bash
+uv run pytest -q
+```
+
+Expected: `42 passed`.
+
+- [x] **Step 4: Mutation check**
+
+Verificare che almeno due mutazioni reali facciano fallire la suite: accettare file non vuoti e invertire la precedenza env/argomento. Ripristinare il codice e rieseguire i test.
+
+- [x] **Step 5: Verificare lint, formattazione e tipi**
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src
+```
+
+Expected: tutti exit code `0`.
+
+- [x] **Step 6: Commit**
+
+```bash
+git add tests pyproject.toml src/beancount_mcp/server.py
+git commit -m "test(M1): cover init, config, CLI, and server"
+```
+
+---
+
 ## Verifica finale dell'incremento
 
 - [x] `uv run beancount-mcp init /tmp/prova/main.bean --currency EUR` crea entrambi i file.
 - [x] Un secondo `init` sullo stesso percorso fallisce senza modificare nulla.
 - [x] `uv run beancount-mcp /tmp/prova/main.bean` avvia il server MCP su stdio (senza tool).
 - [x] `uv run beancount-mcp` senza ledger predefinito termina con un messaggio che rimanda a `init`.
+- [x] `uv run pytest -q` passa (42 test).
 - [x] `uv run ruff check .`, `uv run ruff format --check .` e `uv run mypy src` passano.
-- [x] `docs/decisions.md` contiene versioni, scelte e deviazione sui test.
+- [x] `docs/decisions.md` contiene versioni, scelte e politica dei test.

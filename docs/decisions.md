@@ -48,7 +48,13 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
 
 ## Test e CI
 
-Su richiesta esplicita dell'utente, i test automatici e la CI sono rimandati. La
-specifica prevede TDD e CI in M0: questa deviazione va recuperata prima di
-considerare chiusa la milestone. Per ora la verifica è manuale e documentata nel
-piano `docs/superpowers/plans/2026-10-25-bootstrap-and-init.md`.
+Su richiesta esplicita dell'utente, i test automatici vengono scritti **alla fine
+di ogni incremento**, non prima dell'implementazione come prevede la specifica.
+La suite vive in `tests/unit/` e `tests/integration/` e si esegue con:
+
+```bash
+uv run pytest
+```
+
+La CI resta rimandata; va aggiunta prima di considerare chiusa la milestone M0,
+insieme ai passi `ruff`, `mypy` e `pytest`.
