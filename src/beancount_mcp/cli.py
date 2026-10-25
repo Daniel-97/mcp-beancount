@@ -68,14 +68,21 @@ def _run_server(argv: Sequence[str]) -> int:
     ledger_path = resolve_ledger_path(args.ledger)
     if not ledger_path.is_file():
         print(f"Ledger non trovato: {ledger_path}", file=sys.stderr)
-        print(
-            "Per creare un nuovo ledger: beancount-mcp init --currency EUR",
-            file=sys.stderr,
-        )
-        print(
-            "Oppure indica un ledger esistente: beancount-mcp /percorso/main.bean",
-            file=sys.stderr,
-        )
+        if args.ledger:
+            print(
+                "Controlla il percorso oppure crea un nuovo ledger con: "
+                f"beancount-mcp init {ledger_path} --currency EUR",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Per creare un nuovo ledger: beancount-mcp init --currency EUR",
+                file=sys.stderr,
+            )
+            print(
+                "Oppure indica un ledger esistente: beancount-mcp /percorso/main.bean",
+                file=sys.stderr,
+            )
         return 2
 
     server.run()

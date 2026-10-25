@@ -35,9 +35,16 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
   valute.
 - `init` rifiuta file esistenti non vuoti, symlink e path che non sono file
   regolari; un file esistente vuoto è accettato.
+- Il file principale non può chiamarsi `inbox.bean`: verrebbe incluso da sé.
 - Il file principale viene scritto in modo atomico (file temporaneo nella stessa
   directory, `fsync`, `os.replace`), così un errore non lascia un ledger parziale.
+- I permessi dei file rispettano l'umask dell'utente; se il file principale esiste
+  già vuoto, viene preservato il suo modo.
 - Le directory padre del ledger vengono create se mancanti.
+- La valuta è normalizzata in maiuscolo e validata con una grammatica simile a
+  quella ISO (`[A-Z][A-Z0-9'._-]{0,22}[A-Z0-9]`). Questa regola è più restrittiva di
+  Beancount, che accetta anche commodity di un carattere e prefissi `/`: scelta
+  conservativa, da rivalutare quando `init` potrà usare `CURRENCY_RE`.
 
 ## Test e CI
 
