@@ -56,5 +56,12 @@ La suite vive in `tests/unit/` e `tests/integration/` e si esegue con:
 uv run pytest
 ```
 
+Convenzioni obbligatorie per i test:
+
+- nome nella forma `test<Subject>_should<Behavior>_when<Condition>()`, ad esempio
+  `testCreateLedger_shouldRefuseInitialization_whenMainLedgerIsNotEmpty()`;
+- corpo strutturato con i commenti `# Given`, `# When`, `# Then`;
+- asserzioni su comportamento e side effect reali, non sull'esistenza di mock.
+
 La CI resta rimandata; va aggiunta prima di considerare chiusa la milestone M0,
 insieme ai passi `ruff`, `mypy` e `pytest`.

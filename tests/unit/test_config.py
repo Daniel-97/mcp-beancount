@@ -9,71 +9,109 @@ import pytest
 from beancount_mcp.config import default_ledger_path, resolve_ledger_path
 
 
-def test_explicit_path_wins_over_environment(tmp_path: Path) -> None:
+def testResolveLedgerPath_shouldPreferExplicitPath_whenEnvironmentIsSet(
+    tmp_path: Path,
+) -> None:
+    # Given
     explicit = tmp_path / "explicit.bean"
+    environment = {"BEANCOUNT_MCP_LEDGER": str(tmp_path / "env.bean")}
 
-    result = resolve_ledger_path(
-        str(explicit),
-        {"BEANCOUNT_MCP_LEDGER": str(tmp_path / "env.bean")},
-    )
+    # When
+    result = resolve_ledger_path(str(explicit), environment)
 
+    # Then
     assert result == explicit
 
 
-def test_environment_is_used_without_explicit_path(tmp_path: Path) -> None:
+def testResolveLedgerPath_shouldUseEnvironment_whenExplicitPathIsMissing(
+    tmp_path: Path,
+) -> None:
+    # Given
     expected = tmp_path / "env.bean"
+    environment = {"BEANCOUNT_MCP_LEDGER": str(expected)}
 
-    result = resolve_ledger_path(None, {"BEANCOUNT_MCP_LEDGER": str(expected)})
+    # When
+    result = resolve_ledger_path(None, environment)
 
+    # Then
     assert result == expected
 
 
-def test_empty_explicit_path_falls_back_to_environment(tmp_path: Path) -> None:
+def testResolveLedgerPath_shouldUseEnvironment_whenExplicitPathIsEmpty(
+    tmp_path: Path,
+) -> None:
+    # Given
     expected = tmp_path / "env.bean"
+    environment = {"BEANCOUNT_MCP_LEDGER": str(expected)}
 
-    result = resolve_ledger_path("", {"BEANCOUNT_MCP_LEDGER": str(expected)})
+    # When
+    result = resolve_ledger_path("", environment)
 
+    # Then
     assert result == expected
 
 
-def test_default_is_used_without_explicit_path_or_environment() -> None:
+def testResolveLedgerPath_shouldUseDefaultLedgerPath_whenNoExplicitPathOrEnvironmentIsSet() -> None:
+    # Given
     expected = Path.home() / ".beancount-mcp" / "ledger" / "main.bean"
 
+    # When
     result = resolve_ledger_path(None, {})
 
+    # Then
     assert result == expected
 
 
-def test_default_ledger_path_points_to_main_bean() -> None:
+def testDefaultLedgerPath_shouldPointToMainBean_whenCalled() -> None:
+    # Given
+    # no explicit path and no environment override
+
+    # When
     result = default_ledger_path()
 
+    # Then
     assert result == Path.home() / ".beancount-mcp" / "ledger" / "main.bean"
 
 
-def test_tilde_is_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def testResolveLedgerPath_shouldExpandTilde_whenPathStartsWithHomeShorthand(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
+    # When
     result = resolve_ledger_path("~/ledger.bean", {})
 
+    # Then
     assert result == tmp_path / "ledger.bean"
 
 
-def test_relative_path_becomes_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def testResolveLedgerPath_shouldReturnAbsolutePath_whenPathIsRelative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
     monkeypatch.chdir(tmp_path)
 
+    # When
     result = resolve_ledger_path("main.bean", {})
 
+    # Then
     assert result.is_absolute()
     assert result == Path.cwd() / "main.bean"
 
 
-def test_symlink_is_not_resolved(tmp_path: Path) -> None:
+def testResolveLedgerPath_shouldKeepSymlinkPath_whenTargetIsSymlink(
+    tmp_path: Path,
+) -> None:
+    # Given
     target = tmp_path / "target.bean"
     target.write_text("existing\n")
     link = tmp_path / "link.bean"
     link.symlink_to(target)
 
+    # When
     result = resolve_ledger_path(str(link), {})
 
+    # Then
     assert result == link

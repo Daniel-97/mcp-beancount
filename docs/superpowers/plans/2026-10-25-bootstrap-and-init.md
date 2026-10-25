@@ -468,6 +468,8 @@ git commit -m "docs(M0): record technical decisions and usage"
 
 - [x] **Step 1: Scrivere i test unitari**
 
+Convenzioni: nome `test<Subject>_should<Behavior>_when<Condition>()` e corpo con commenti `# Given`, `# When`, `# Then`.
+
 Coprire: precedenza argomento/env/default, espansione `~`, path relativi, symlink non risolti; contenuto esatto del ledger, normalizzazione e rifiuto valute, rifiuto file non vuoti/symlink/non regolari, collisione `inbox.bean`, file vuoti accettati con mode preservato, umask, creazione directory, fallimento di `os.replace` senza file parziali; codici di uscita CLI e messaggi per ledger mancante; nome e versione del server MCP.
 
 - [x] **Step 2: Scrivere il test di integrazione**
@@ -480,7 +482,7 @@ Coprire: precedenza argomento/env/default, espansione `~`, path relativi, symlin
 uv run pytest -q
 ```
 
-Expected: `42 passed`.
+Expected: `44 passed`.
 
 - [x] **Step 4: Mutation check**
 
@@ -511,6 +513,6 @@ git commit -m "test(M1): cover init, config, CLI, and server"
 - [x] Un secondo `init` sullo stesso percorso fallisce senza modificare nulla.
 - [x] `uv run beancount-mcp /tmp/prova/main.bean` avvia il server MCP su stdio (senza tool).
 - [x] `uv run beancount-mcp` senza ledger predefinito termina con un messaggio che rimanda a `init`.
-- [x] `uv run pytest -q` passa (42 test).
+- [x] `uv run pytest -q` passa (44 test).
 - [x] `uv run ruff check .`, `uv run ruff format --check .` e `uv run mypy src` passano.
 - [x] `docs/decisions.md` contiene versioni, scelte e politica dei test.
