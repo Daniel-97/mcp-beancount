@@ -38,9 +38,7 @@ def render_main_ledger(currency: str, opening_date: date) -> str:
     )
 
 
-def create_ledger(
-    ledger_path: Path, currency: str, *, today: date | None = None
-) -> InitResult:
+def create_ledger(ledger_path: Path, currency: str, *, today: date | None = None) -> InitResult:
     """Create a main ledger and an empty inbox next to it.
 
     Existing non-empty files, symlinks, and non-regular files are refused.
@@ -71,9 +69,7 @@ def create_ledger(
     except OSError as exc:
         if inbox_created:
             inbox_path.unlink(missing_ok=True)
-        raise InitError(
-            f"Impossibile creare il ledger in {resolved_ledger.parent}: {exc}"
-        ) from exc
+        raise InitError(f"Impossibile creare il ledger in {resolved_ledger.parent}: {exc}") from exc
 
     return InitResult(
         ledger_path=resolved_ledger,
@@ -87,8 +83,7 @@ def _check_target(path: Path) -> None:
     """Refuse anything that ``init`` could overwrite or follow."""
     if path.is_symlink():
         raise InitError(
-            f"Impossibile creare il ledger: {path} è un symlink. "
-            "Nessun file è stato modificato."
+            f"Impossibile creare il ledger: {path} è un symlink. Nessun file è stato modificato."
         )
     if path.exists() and not path.is_file():
         raise InitError(
@@ -104,9 +99,7 @@ def _check_target(path: Path) -> None:
 
 def _write_atomic(path: Path, content: str) -> None:
     """Write ``content`` to ``path`` without leaving a partial file."""
-    fd, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-    )
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     temporary_path = Path(temporary_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:

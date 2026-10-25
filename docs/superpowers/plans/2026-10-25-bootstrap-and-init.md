@@ -204,9 +204,7 @@ def default_ledger_path() -> Path:
     return Path(os.path.abspath(os.path.expanduser(DEFAULT_LEDGER_PATH)))
 
 
-def resolve_ledger_path(
-    explicit: str | None, env: Mapping[str, str] | None = None
-) -> Path:
+def resolve_ledger_path(explicit: str | None, env: Mapping[str, str] | None = None) -> Path:
     """Resolve the ledger path from CLI, environment, or default."""
     environ = os.environ if env is None else env
     value = explicit or environ.get(ENV_LEDGER) or str(default_ledger_path())
