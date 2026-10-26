@@ -114,6 +114,27 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
 - Il fixture `with_errors` contiene una transazione sbilanciata e un account non
   aperto, per verificare il confronto e la reportistica.
 
+## Scritture sull'inbox
+
+- Le scritture sono serializzate da un lock non bloccante accanto al ledger
+  (`<main>.lock`). Se il lock esiste, il tool risponde `LOCKED` e indica il file.
+- La scrittura usa un file temporaneo nella directory di destinazione, `fsync` e
+  `os.replace`; il mode del file esistente viene preservato.
+- `dry_run` esegue parsing, staging e validazione senza creare lock né scrivere.
+- Lo staging copia i file inclusi in un albero temporaneo, applica la modifica a
+  un solo file e ricarica la copia con Beancount. I path assoluti negli `include`
+  vengono riscritti nell'albero temporaneo; i path relativi restano invariati.
+- Il confronto usa `ErrorMultisetValidator`: solo gli errori nuovi bloccano.
+- `pad` e `balance` sono rifiutati; `include` e `plugin` sono rifiutati per
+  impedire accessi a file o esecuzione di codice tramite l'inbox.
+- `expected_ledger_version` viene controllata prima e dopo lo staging; un cambio
+  concorrente produce `VERSION_CONFLICT`.
+- `add_transactions` restituisce entry formattate, `entry_count`, versione,
+  `warning_count` e, in dry-run, `would_write_text`.
+- `open_account` valida formato e radice dell'account, rifiuta duplicati e nomi
+  simili (`confirm_new` per procedere), valida le valute e usa oggi come data
+  predefinita.
+
 ## Test e CI
 
 Su richiesta esplicita dell'utente, i test automatici vengono scritti **alla fine

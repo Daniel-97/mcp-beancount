@@ -94,6 +94,34 @@ gli errori correnti con file, riga, tipo e messaggio, oltre a `valid` e
 `ledger_version`. Gli errori preesistenti non bloccano le scritture; solo quelli
 nuovi verranno rifiutati dai tool di modifica.
 
+### `add_transactions`
+
+Aggiunge una o più direttive Beancount all'inbox, con validazione prima/dopo.
+Parametri: `text`, `dry_run` (default `false`),
+`expected_ledger_version` (opzionale).
+
+```text
+2026-02-01 * "Bar" "Caffè"
+  Expenses:Food    2.50 EUR
+  Assets:Cash     -2.50 EUR
+```
+
+La scrittura è atomica, serializzata da un lock e rifiutata se introdurrebbe
+nuovi errori. Con `dry_run=true` restituisce `would_write_text` senza modificare
+file.
+
+### `open_account`
+
+Apre un account scrivendo una direttiva `open` nell'inbox. Parametri:
+`account`, `currencies`, `date` (default oggi), `confirm_new`, `dry_run`.
+
+```text
+open_account("Expenses:Restaurant", ["EUR"])
+```
+
+Rifiuta account già aperti, nomi simili (`ACCOUNT_SIMILAR_EXISTS`) e radici non
+ammesse. `confirm_new=true` consente di aprire comunque un nome simile.
+
 ## Documentazione
 
 - Specifica: [`spec.md`](spec.md)

@@ -6,8 +6,9 @@ from collections import Counter
 from collections.abc import Iterable
 from typing import Any
 
-from beancount.core.data import Close, Directive, Open, Transaction
+from beancount.core.data import Directive, Transaction
 
+from beancount_mcp.accounts import account_infos
 from beancount_mcp.errors import ErrorInfo, error_response
 from beancount_mcp.ledger import (
     LEDGER_ERROR_HINT,
@@ -65,40 +66,16 @@ def build_ledger_info(service: LedgerService) -> dict[str, Any]:
 
 
 def _accounts(entries: Iterable[Directive]) -> list[dict[str, Any]]:
-    accounts: dict[str, dict[str, Any]] = {}
-    for entry in entries:
-        if isinstance(entry, Open):
-            info = accounts.setdefault(
-                entry.account,
-                {
-                    "account": entry.account,
-                    "open_date": None,
-                    "close_date": None,
-                    "currencies": None,
-                    "is_open": True,
-                },
-            )
-            info["open_date"] = entry.date.isoformat()
-            info["currencies"] = list(entry.currencies) if entry.currencies else None
-        elif isinstance(entry, Close):
-            info = accounts.setdefault(
-                entry.account,
-                {
-                    "account": entry.account,
-                    "open_date": None,
-                    "close_date": None,
-                    "currencies": None,
-                    "is_open": True,
-                },
-            )
-            info["close_date"] = entry.date.isoformat()
-
-    result: list[dict[str, Any]] = []
-    for account in sorted(accounts):
-        info = accounts[account]
-        info["is_open"] = info["close_date"] is None
-        result.append(info)
-    return result
+    return [
+        {
+            "account": info.account,
+            "open_date": info.open_date.isoformat() if info.open_date else None,
+            "close_date": info.close_date.isoformat() if info.close_date else None,
+            "currencies": list(info.currencies) if info.currencies else None,
+            "is_open": info.is_open,
+        }
+        for _, info in sorted(account_infos(entries).items())
+    ]
 
 
 def _top_values(values: Iterable[str]) -> list[dict[str, Any]]:
