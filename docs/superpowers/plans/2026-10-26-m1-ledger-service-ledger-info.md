@@ -1,6 +1,6 @@
 # M1 — LedgerService, versione del ledger e `ledger_info` — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Caricare il ledger a ogni richiesta, calcolarne la versione SHA-256 e esporre il tool `ledger_info` con account, date, errori, tag/link, inbox e modalità read-only.
 
@@ -83,7 +83,7 @@ tests/
   - `resolve_inbox_path(ledger_path: Path, inbox: str = DEFAULT_INBOX) -> Path`
   - `build_config(ledger: str | None, *, inbox: str = DEFAULT_INBOX, read_only: bool = False, allow_edit_outside_inbox: bool = False, query_limit: int = DEFAULT_QUERY_LIMIT, transport: str = "stdio", env: Mapping[str, str] | None = None) -> Config`
 
-- [ ] **Step 1: Aggiungere `Config`, costanti e `resolve_inbox_path`**
+- [x] **Step 1: Aggiungere `Config`, costanti e `resolve_inbox_path`**
 
 Comportamento:
 
@@ -92,7 +92,7 @@ Comportamento:
 3. `query_limit` deve essere tra `1` e `1000`; fuori intervallo solleva `ValueError` con messaggio `"--query-limit deve essere tra 1 e 1000"`.
 4. `transport` accettato solo `"stdio"`; altrimenti `ValueError`.
 
-- [ ] **Step 2: Estendere il parser server in `cli.py`**
+- [x] **Step 2: Estendere il parser server in `cli.py`**
 
 Aggiungere a `_run_server`:
 
@@ -106,7 +106,7 @@ parser.add_argument("--transport", choices=["stdio"], default="stdio")
 
 Costruire `config = build_config(...)`, usare `config.ledger_path` per il controllo di esistenza e chiamare `server.run(config)`. Gli errori di `ValueError` da `build_config` vanno convertiti in `parser.error(str(exc))` (exit code 2).
 
-- [ ] **Step 3: Verifica manuale**
+- [x] **Step 3: Verifica manuale**
 
 ```bash
 uv run python - <<'PY'
@@ -121,7 +121,7 @@ PY
 
 Expected: ledger assoluto, inbox `/tmp/sub/inbox.bean`, `True 100 stdio`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/beancount_mcp/config.py src/beancount_mcp/cli.py
@@ -145,7 +145,7 @@ git commit -m "feat(M1): add server config and CLI flags"
   - `inspect_inbox(inbox_path: Path, ledger_path: Path, included_files: Iterable[Path]) -> InboxStatus`
   - `class LedgerService`: `__init__(config: Config)`, proprietà `config: Config`, `load() -> LedgerSnapshot`
 
-- [ ] **Step 1: Implementare `compute_ledger_version`**
+- [x] **Step 1: Implementare `compute_ledger_version`**
 
 Algoritmo esatto:
 
@@ -161,7 +161,7 @@ for path in normalized:
 return digest.hexdigest()
 ```
 
-- [ ] **Step 2: Implementare `inspect_inbox`**
+- [x] **Step 2: Implementare `inspect_inbox`**
 
 1. `exists = inbox_path.is_file()`.
 2. `included = exists and any(os.path.realpath(inbox_path) == os.path.realpath(f) for f in included_files)`.
@@ -171,7 +171,7 @@ return digest.hexdigest()
    - presente ma non inclusa: `Inbox non inclusa. Aggiungi al ledger: include "{include_line}"`
    - inclusa: `None`.
 
-- [ ] **Step 3: Implementare `LedgerService.load`**
+- [x] **Step 3: Implementare `LedgerService.load`**
 
 1. Se `config.ledger_path` non è un file, sollevare `LedgerError(f"Ledger non trovato: {config.ledger_path}")`.
 2. `entries, errors, options = loader.load_file(str(config.ledger_path))`.
@@ -183,7 +183,7 @@ return digest.hexdigest()
 
 Nessuna cache: ogni chiamata rilegge da disco.
 
-- [ ] **Step 4: Verifica manuale sui fixture esistenti o temporanei**
+- [x] **Step 4: Verifica manuale sui fixture esistenti o temporanei**
 
 ```bash
 uv run python - <<'PY'
@@ -208,7 +208,7 @@ PY
 
 Expected: 1 entry, 0 errori, versione esadecimale a 64 caratteri, entrambi i file elencati, inbox inclusa.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/beancount_mcp/ledger.py
@@ -231,7 +231,7 @@ git commit -m "feat(M1): load ledger, compute version, inspect inbox"
   - `create_server(config: Config) -> MCPServer`
   - `run(config: Config) -> None`
 
-- [ ] **Step 1: Implementare `build_ledger_info`**
+- [x] **Step 1: Implementare `build_ledger_info`**
 
 Risposta esatta:
 
@@ -279,7 +279,7 @@ Regole:
    - errori: `Il ledger contiene {n} errori preesistenti.`
 5. `operating_currency` è sempre una lista (Beancount ammette più valute).
 
-- [ ] **Step 2: Registrare il tool in `server.py`**
+- [x] **Step 2: Registrare il tool in `server.py`**
 
 ```python
 def create_server(config: Config) -> MCPServer:
@@ -309,7 +309,7 @@ def run(config: Config) -> None:
     create_server(config).run()
 ```
 
-- [ ] **Step 3: Verifica manuale del tool registrato**
+- [x] **Step 3: Verifica manuale del tool registrato**
 
 ```bash
 uv run python - <<'PY'
@@ -333,7 +333,7 @@ PY
 
 Expected: `['ledger_info']` e `True`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/beancount_mcp/tools src/beancount_mcp/server.py
@@ -366,7 +366,7 @@ git commit -m "feat(M1): expose ledger_info MCP tool"
 - Consumes: tutto quanto sopra.
 - Produces: suite pytest completa dell'incremento.
 
-- [ ] **Step 1: Creare i fixture**
+- [x] **Step 1: Creare i fixture**
 
 `minimal/main.bean`:
 
@@ -437,7 +437,7 @@ include "cash.bean"
 
 `multifile/inbox.bean`: vuoto.
 
-- [ ] **Step 2: Test unitari versione e inbox (`tests/unit/test_ledger.py`)**
+- [x] **Step 2: Test unitari versione e inbox (`tests/unit/test_ledger.py`)**
 
 Nomi e asserzioni minime:
 
@@ -450,7 +450,7 @@ Nomi e asserzioni minime:
 7. `testInspectInbox_shouldWarnNotIncluded_whenFileExistsOutsideFiles` — `exists True`, `included False`, warning contiene `Inbox non inclusa`.
 8. `testLedgerService_shouldRaise_whenLedgerFileIsMissing` — `pytest.raises(LedgerError)`.
 
-- [ ] **Step 3: Test unitari config/CLI/server**
+- [x] **Step 3: Test unitari config/CLI/server**
 
 `tests/unit/test_config.py` aggiungere:
 
@@ -473,7 +473,7 @@ Nomi e asserzioni minime:
 2. `testCreateServer_shouldUseProjectNameAndVersion_whenCreated` — invariato ma con `Config`.
 3. `testCreateServer_shouldReturnOkFromLedgerInfo_whenToolIsCalled` — `asyncio.run(mcp.call_tool("ledger_info", {}))`, `structured_content["ok"] is True`.
 
-- [ ] **Step 4: Test di integrazione sul servizio**
+- [x] **Step 4: Test di integrazione sul servizio**
 
 `tests/integration/test_ledger_service.py`:
 
@@ -486,7 +486,7 @@ Nomi e asserzioni minime:
 7. `testLedgerService_shouldReportInboxMissing_whenInboxDoesNotExist` — fixture `no_inbox`.
 8. `testLedgerService_shouldReportInboxNotIncluded_whenInboxExistsButIsNotIncluded` — ledger temporaneo con inbox presente e nessun `include`.
 
-- [ ] **Step 5: Test di integrazione su `ledger_info`**
+- [x] **Step 5: Test di integrazione su `ledger_info`**
 
 `tests/integration/test_ledger_info.py`:
 
@@ -502,7 +502,7 @@ Nomi e asserzioni minime:
 10. `testBuildLedgerInfo_shouldReportEmpty_whenLedgerHasNoEntries` — fixture `empty`, warning con `open_account`.
 11. `testBuildLedgerInfo_shouldReturnServiceVersion_whenLedgerIsLoaded` — confronto con `LedgerService(config).load().version`.
 
-- [ ] **Step 6: Eseguire la suite**
+- [x] **Step 6: Eseguire la suite**
 
 ```bash
 uv run pytest -q
@@ -510,7 +510,7 @@ uv run pytest -q
 
 Expected: `88 passed`.
 
-- [ ] **Step 7: Mutation check**
+- [x] **Step 7: Mutation check**
 
 Verificare che almeno due mutazioni facciano fallire la suite:
 
@@ -519,7 +519,7 @@ Verificare che almeno due mutazioni facciano fallire la suite:
 
 Ripristinare il codice e rieseguire la suite.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add tests src
@@ -535,7 +535,7 @@ git commit -m "test(M1): cover ledger service and ledger_info"
 - Modify: `README.md`
 - Modify: `docs/superpowers/plans/2026-10-26-m1-ledger-service-ledger-info.md`
 
-- [ ] **Step 1: Aggiornare `docs/decisions.md`**
+- [x] **Step 1: Aggiornare `docs/decisions.md`**
 
 Registrare:
 
@@ -547,11 +547,11 @@ Registrare:
 6. Flag CLI aggiunti e validazione `--query-limit`.
 7. Numero finale dei test e comando di verifica.
 
-- [ ] **Step 2: Aggiornare `README.md`**
+- [x] **Step 2: Aggiornare `README.md`**
 
 Aggiungere che `ledger_info` è disponibile, con un esempio di chiamata MCP e i flag server principali (`--read-only`, `--inbox`, `--query-limit`, `--transport stdio`).
 
-- [ ] **Step 3: Verificare qualità**
+- [x] **Step 3: Verificare qualità**
 
 ```bash
 uv run pytest -q
@@ -562,7 +562,7 @@ uv run mypy src tests
 
 Expected: tutti exit code `0`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/decisions.md README.md docs/superpowers/plans/2026-10-26-m1-ledger-service-ledger-info.md
@@ -573,11 +573,11 @@ git commit -m "docs(M1): document ledger version and ledger_info"
 
 ## Verifica finale dell'incremento
 
-- [ ] `uv run pytest -q` passa.
-- [ ] `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests` passano.
-- [ ] `ledger_info` su `minimal` restituisce 2 transazioni, 2 account, tag/link ordinati e inbox inclusa.
-- [ ] `ledger_info` su `empty` restituisce `is_empty: true` e warning con `open_account`.
-- [ ] `ledger_info` su `no_inbox` restituisce warning con `include "inbox.bean"`.
-- [ ] Modificare un file incluso cambia `ledger_version` al load successivo.
-- [ ] Il server espone il tool `ledger_info` e `tools/list` restituisce `["ledger_info"]`.
-- [ ] `docs/decisions.md` e README sono aggiornati.
+- [x] `uv run pytest -q` passa.
+- [x] `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy src tests` passano.
+- [x] `ledger_info` su `minimal` restituisce 2 transazioni, 2 account, tag/link ordinati e inbox inclusa.
+- [x] `ledger_info` su `empty` restituisce `is_empty: true` e warning con `open_account`.
+- [x] `ledger_info` su `no_inbox` restituisce warning con `include "inbox.bean"`.
+- [x] Modificare un file incluso cambia `ledger_version` al load successivo.
+- [x] Il server espone il tool `ledger_info` e `tools/list` restituisce `["ledger_info"]`.
+- [x] `docs/decisions.md` e README sono aggiornati.

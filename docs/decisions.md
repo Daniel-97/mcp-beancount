@@ -1,6 +1,6 @@
 # Decisioni tecniche
 
-Data: 2026-10-25
+Ultimo aggiornamento: 2026-10-26
 
 ## Versioni delle dipendenze
 
@@ -46,6 +46,40 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
   Beancount, che accetta anche commodity di un carattere e prefissi `/`: scelta
   conservativa, da rivalutare quando `init` potrà usare `CURRENCY_RE`.
 
+## Caricamento del ledger e versione
+
+- Il ledger viene caricato da disco a ogni `LedgerService.load()`, senza cache.
+- I file coinvolti sono quelli restituiti da `options_map["include"]` di
+  Beancount 3.2.3: path assoluti, normalizzati, ordinati e deduplicati (file
+  principale più include risolti, inclusi i glob).
+- La versione è SHA-256 della concatenazione, in ordine alfabetico di path, di
+  `path assoluto + NUL + SHA-256 del contenuto + newline`. I path non vengono
+  risolti tramite symlink.
+- Lo stato dell'inbox confronta i path reali. `--inbox` è relativo alla directory
+  del ledger; è accettato anche un path assoluto.
+- `is_empty` è vero quando il loader non restituisce direttive, quindi anche per
+  un file con soli commenti.
+
+## Tool `ledger_info`
+
+- Risposta con `ok: true`, percorso del ledger, file, versione, operating
+  currencies (sempre lista), account, date delle transazioni, conteggio errori,
+  top tag/link, stato inbox, modalità read-only e warnings.
+- Gli account derivano da `Open`/`Close`; `currencies` è `null` quando l'account
+  non ha restrizioni; `is_open` dipende dall'assenza di `Close`.
+- Gli errori preesistenti non bloccano il tool: vengono contati e segnalati nei
+  warnings.
+- I tag e i link sono ordinati per frequenza decrescente e nome, massimo 10.
+
+## Configurazione del server
+
+- `Config` è immutabile e contiene ledger, inbox, read-only,
+  allow-edit-outside-inbox, query limit e transport.
+- Flag CLI: `--inbox`, `--read-only`, `--allow-edit-outside-inbox`,
+  `--query-limit` (1–1000), `--transport stdio`.
+- Un ledger mancante termina il server con exit code 2 e un messaggio che rimanda
+  a `init` o al percorso corretto.
+
 ## Test e CI
 
 Su richiesta esplicita dell'utente, i test automatici vengono scritti **alla fine
@@ -62,6 +96,8 @@ Convenzioni obbligatorie per i test:
   `testCreateLedger_shouldRefuseInitialization_whenMainLedgerIsNotEmpty()`;
 - corpo strutturato con i commenti `# Given`, `# When`, `# Then`;
 - asserzioni su comportamento e side effect reali, non sull'esistenza di mock.
+
+Stato attuale: 88 test.
 
 La CI resta rimandata; va aggiunta prima di considerare chiusa la milestone M0,
 insieme ai passi `ruff`, `mypy` e `pytest`.
