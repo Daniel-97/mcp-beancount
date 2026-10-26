@@ -484,7 +484,7 @@ Nomi e asserzioni minime:
 
 `tests/integration/test_ledger_service.py`:
 
-1. `testLedgerService_shouldLoadMinimalLedger_whenFilesAreValid` — 3 entry, 0 errori, `files` contiene main e inbox.
+1. `testLedgerService_shouldLoadMinimalLedger_whenFilesAreValid` — 4 entry, 0 errori, `files` contiene main e inbox.
 2. `testLedgerService_shouldReportNestedIncludes_whenLedgerIsMultifile` — `files` contiene main, accounts, cash, inbox.
 3. `testLedgerService_shouldReloadFromDisk_whenFileChanges` — carica, modifica, ricarica: versione e numero entry cambiano.
 4. `testLedgerService_shouldKeepVersionStable_whenIncludedFileIsUnchanged` — due load, stessa versione.
