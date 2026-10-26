@@ -180,7 +180,11 @@ Convenzioni obbligatorie per i test:
 - corpo strutturato con i commenti `# Given`, `# When`, `# Then`;
 - asserzioni su comportamento e side effect reali, non sull'esistenza di mock.
 
-Stato attuale: 99 test.
+Stato attuale: 99 test, tutti relativi a M0/M1. I test di M2–M6 sono la fase
+successiva e precedono il merge del branch di implementazione.
+
+Pubblicazione su PyPI e CI restano da fare: richiedono rispettivamente
+credenziali del maintainer e la configurazione CI rimossa su richiesta.
 
 La CI resta rimandata; va aggiunta prima di considerare chiusa la milestone M0,
 insieme ai passi `ruff`, `mypy` e `pytest`.

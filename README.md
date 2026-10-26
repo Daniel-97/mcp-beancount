@@ -154,6 +154,29 @@ find_transactions(account="Expenses:Food", min_amount="10.00", max_amount="50.00
 senza valuta. I risultati sono dal più recente e `entry_id` può essere passato a
 `edit_transaction` o `delete_transaction`.
 
+## Configurazione di un client MCP
+
+Esempio per un client che supporta la configurazione JSON (adatta i percorsi):
+
+```json
+{
+  "mcpServers": {
+    "beancount": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/percorso/del/repo/mcp-beancount",
+        "beancount-mcp",
+        "/percorso/main.bean"
+      ]
+    }
+  }
+}
+```
+
+Per una sessione in sola lettura aggiungi `"--read-only"` agli `args`.
+
 ## Documentazione
 
 - Specifica: [`spec.md`](spec.md)
