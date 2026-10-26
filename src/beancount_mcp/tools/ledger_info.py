@@ -97,5 +97,7 @@ def _warnings(snapshot: LedgerSnapshot) -> list[str]:
     if snapshot.inbox.warning is not None:
         warnings.append(snapshot.inbox.warning)
     if snapshot.errors:
-        warnings.append(f"Il ledger contiene {len(snapshot.errors)} errori preesistenti.")
+        count = len(snapshot.errors)
+        noun = "errore preesistente" if count == 1 else "errori preesistenti"
+        warnings.append(f"Il ledger contiene {count} {noun}.")
     return warnings
