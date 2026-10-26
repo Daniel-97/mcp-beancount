@@ -16,6 +16,7 @@ from beancount_mcp.entry_service import (
 )
 from beancount_mcp.ledger import LedgerService
 from beancount_mcp.tools.add_transactions import add_transactions as add_transactions_tool
+from beancount_mcp.tools.find_transactions import find_transactions as find_transactions_tool
 from beancount_mcp.tools.ledger_info import build_ledger_info
 from beancount_mcp.tools.open_account import open_account as open_account_tool
 from beancount_mcp.tools.query import run_query
@@ -177,6 +178,44 @@ def create_server(config: Config) -> MCPServer:
         - Use dry_run=true to inspect the transaction that would be removed.
         """
         return delete_transaction_service(service, entry_id, dry_run=dry_run)
+
+    @mcp.tool()
+    def find_transactions(
+        payee: str | None = None,
+        narration_contains: str | None = None,
+        account: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        min_amount: str | None = None,
+        max_amount: str | None = None,
+        tags: list[str] | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Find transactions and return their full Beancount text with entry ids.
+
+        All filters are optional and combined with AND. account matches the
+        account and its subaccounts. min_amount/max_amount are absolute posting
+        amounts without currency, for example "10.00". tags requires all listed
+        tags. Results are newest first and include entry_id for edit/delete.
+
+        Examples:
+        - find_transactions(payee="Shop")
+        - find_transactions(narration_contains="coffee", date_from="2026-01-01")
+        - find_transactions(account="Expenses:Food", min_amount="10.00", max_amount="50.00")
+        - find_transactions(tags=["food"], limit=20)
+        """
+        return find_transactions_tool(
+            service,
+            payee=payee,
+            narration_contains=narration_contains,
+            account=account,
+            date_from=date_from,
+            date_to=date_to,
+            min_amount=min_amount,
+            max_amount=max_amount,
+            tags=tags,
+            limit=limit,
+        )
 
     return mcp
 

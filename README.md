@@ -138,6 +138,22 @@ Elimina una transazione identificata da `entry_id`. Parametri: `entry_id`,
 `dry_run`. Non elimina `open`, `close`, `balance` o `pad`. Valgono le stesse
 regole di path e validazione di `edit_transaction`.
 
+### `find_transactions`
+
+Cerca transazioni e restituisce testo Beancount completo e `entry_id`. Filtri
+opzionali combinati in AND: `payee`, `narration_contains`, `account`,
+`date_from`, `date_to`, `min_amount`, `max_amount`, `tags`, `limit`.
+
+```text
+find_transactions(payee="Shop")
+find_transactions(narration_contains="coffee", date_from="2026-01-01")
+find_transactions(account="Expenses:Food", min_amount="10.00", max_amount="50.00")
+```
+
+`account` include i sottoconti. Gli importi sono valori assoluti delle posting,
+senza valuta. I risultati sono dal più recente e `entry_id` può essere passato a
+`edit_transaction` o `delete_transaction`.
+
 ## Documentazione
 
 - Specifica: [`spec.md`](spec.md)

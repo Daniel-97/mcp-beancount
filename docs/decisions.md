@@ -150,6 +150,19 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
   rifiutati.
 - Edit e delete usano lock, staging, validazione prima/dopo e scrittura atomica.
 
+## Ricerca transazioni
+
+- Filtri combinati in AND.
+- `payee` è un confronto esatto; `narration_contains` è case-insensitive.
+- `account` corrisponde all'account esatto e ai suoi sottoconti.
+- `date_from`/`date_to` sono inclusive, in formato ISO.
+- `min_amount`/`max_amount` sono numeri decimali senza valuta e si applicano al
+  valore assoluto delle posting.
+- `tags` richiede la presenza di tutti i tag indicati.
+- I risultati sono ordinati dal più recente; default `limit=50`, massimo 500.
+- La risposta include `transactions` (testo Beancount e `entry_id`), `count`,
+  `total_matches`, `truncated` e `limit`.
+
 ## Test e CI
 
 Su richiesta esplicita dell'utente, i test automatici vengono scritti **alla fine
