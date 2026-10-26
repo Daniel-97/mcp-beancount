@@ -67,3 +67,22 @@ def testCreateServer_shouldReturnOkFromLedgerInfo_whenToolIsCalled(
     assert isinstance(result, CallToolResult)
     assert result.structured_content is not None
     assert result.structured_content["ok"] is True
+
+
+def testCreateServer_shouldReturnStructuredError_whenLedgerDisappears(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("", encoding="utf-8")
+    mcp_server = create_server(build_config(str(ledger)))
+    ledger.unlink()
+
+    # When
+    result = asyncio.run(mcp_server.call_tool("ledger_info", {}))
+
+    # Then
+    assert isinstance(result, CallToolResult)
+    assert result.structured_content is not None
+    assert result.structured_content["ok"] is False
+    assert result.structured_content["error"]["code"] == "LEDGER_ERROR"

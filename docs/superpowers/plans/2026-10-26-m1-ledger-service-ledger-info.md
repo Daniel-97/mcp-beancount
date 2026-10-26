@@ -33,7 +33,7 @@
 - Ledger con soli commenti o vuoto: nessuna eccezione, `is_empty` vero, date transazioni nulle.
 - Ledger con errori preesistenti: `ok` resta vero, `error_count` corretto e warning presente.
 - File inclusi via glob o include annidati: tutti compaiono in `files` e contribuiscono alla versione.
-- Ledger passato tramite symlink: i file inclusi e l'inbox devono essere confrontati per path reale per l'appartenenza, ma la versione usa il path assoluto non risolto.
+- Ledger passato tramite symlink: il server risolve il file principale prima del caricamento, così gli include relativi funzionano; l'inbox usa la directory reale e l'appartenenza è confrontata per path reale.
 
 ---
 
@@ -264,9 +264,16 @@ Risposta esatta:
         "warning": str | None,
     },
     "read_only": bool,
+    "allow_edit_outside_inbox": bool,
     "is_empty": bool,
     "warnings": [str, ...],
 }
+```
+
+Se il caricamento fallisce a runtime, la risposta è:
+
+```python
+{"ok": False, "error": {"code": "LEDGER_ERROR", "message": str, "details": [], "hint": str}}
 ```
 
 Regole:
@@ -499,6 +506,8 @@ Nomi e asserzioni minime:
 7. `testBuildLedgerInfo_shouldReportInboxStatus_whenInboxIsIncluded` — fixture `minimal`.
 8. `testBuildLedgerInfo_shouldWarnAboutMissingInbox_whenInboxIsAbsent` — fixture `no_inbox`.
 9. `testBuildLedgerInfo_shouldReportReadOnly_whenConfigIsReadOnly` — `read_only True`.
+10. `testBuildLedgerInfo_shouldReportAllowEditOutsideInbox_whenConfigEnablesIt` — campo vero.
+11. `testBuildLedgerInfo_shouldReturnStructuredError_whenLedgerIsMissing` — `ok False`, `error.code == "LEDGER_ERROR"`.
 10. `testBuildLedgerInfo_shouldReportEmpty_whenLedgerHasNoEntries` — fixture `empty`, warning con `open_account`.
 11. `testBuildLedgerInfo_shouldReturnServiceVersion_whenLedgerIsLoaded` — confronto con `LedgerService(config).load().version`.
 
@@ -508,7 +517,7 @@ Nomi e asserzioni minime:
 uv run pytest -q
 ```
 
-Expected: `88 passed`.
+Expected: `99 passed`.
 
 - [x] **Step 7: Mutation check**
 

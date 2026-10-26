@@ -140,6 +140,24 @@ def testInspectInbox_shouldWarnNotIncluded_whenFileExistsOutsideFiles(
     assert "Inbox non inclusa" in status.warning
 
 
+def testInspectInbox_shouldUseRelativeIncludeLine_whenInboxIsInSubdirectory(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    inbox = tmp_path / "sub" / "inbox.bean"
+    inbox.parent.mkdir()
+    ledger.write_text("", encoding="utf-8")
+    inbox.write_text("", encoding="utf-8")
+
+    # When
+    status = inspect_inbox(inbox, ledger, [ledger])
+
+    # Then
+    assert status.warning is not None
+    assert 'include "sub/inbox.bean"' in status.warning
+
+
 def testLedgerService_shouldRaise_whenLedgerFileIsMissing(tmp_path: Path) -> None:
     # Given
     config = build_config(str(tmp_path / "missing.bean"))

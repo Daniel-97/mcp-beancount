@@ -24,7 +24,7 @@ def create_server(config: Config) -> MCPServer:
         Call this at the start of a session, before querying or writing.
         Returns included files, ledger version, operating currencies, accounts,
         transaction date range, preexisting error count, top tags/links, inbox
-        status, and read-only mode.
+        status, read-only mode, and whether edits outside the inbox are allowed.
 
         Examples:
         - Call with no arguments to discover the accounts available.

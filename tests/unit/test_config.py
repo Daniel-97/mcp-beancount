@@ -178,6 +178,24 @@ def testBuildConfig_shouldRejectUnsupportedTransport_whenTransportIsNotStdio(
     assert "http" in str(raised.value)
 
 
+def testBuildConfig_shouldResolveLedgerSymlink_whenLedgerIsSymlink(
+    tmp_path: Path,
+) -> None:
+    # Given
+    real = tmp_path / "real" / "main.bean"
+    real.parent.mkdir()
+    real.touch()
+    link = tmp_path / "link.bean"
+    link.symlink_to(real)
+
+    # When
+    config = build_config(str(link))
+
+    # Then
+    assert config.ledger_path == real
+    assert config.inbox_path == real.parent / "inbox.bean"
+
+
 def testBuildConfig_shouldCombineLedgerInboxAndFlags_whenAllOptionsAreProvided(
     tmp_path: Path,
 ) -> None:

@@ -49,6 +49,9 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
 ## Caricamento del ledger e versione
 
 - Il ledger viene caricato da disco a ogni `LedgerService.load()`, senza cache.
+- Il server risolve i symlink del file principale prima del caricamento, così gli
+  `include` relativi usano la directory reale. `init` continua a rifiutare i
+  symlink e a non risolverli.
 - I file coinvolti sono quelli restituiti da `options_map["include"]` di
   Beancount 3.2.3: path assoluti, normalizzati, ordinati e deduplicati (file
   principale più include risolti, inclusi i glob).
@@ -64,7 +67,12 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
 
 - Risposta con `ok: true`, percorso del ledger, file, versione, operating
   currencies (sempre lista), account, date delle transazioni, conteggio errori,
-  top tag/link, stato inbox, modalità read-only e warnings.
+  top tag/link, stato inbox, modalità read-only, `allow_edit_outside_inbox` e
+  warnings.
+- Se il ledger sparisce o diventa illeggibile dopo l'avvio, il tool restituisce
+  `ok: false` con `error.code = "LEDGER_ERROR"`, messaggio, `details` e `hint`.
+  Questo codice estende la tabella di §7 per gli errori di I/O non altrimenti
+  rappresentati.
 - Gli account derivano da `Open`/`Close`; `currencies` è `null` quando l'account
   non ha restrizioni; `is_open` dipende dall'assenza di `Close`.
 - Gli errori preesistenti non bloccano il tool: vengono contati e segnalati nei
@@ -97,7 +105,7 @@ Convenzioni obbligatorie per i test:
 - corpo strutturato con i commenti `# Given`, `# When`, `# Then`;
 - asserzioni su comportamento e side effect reali, non sull'esistenza di mock.
 
-Stato attuale: 88 test.
+Stato attuale: 99 test.
 
 La CI resta rimandata; va aggiunta prima di considerare chiusa la milestone M0,
 insieme ai passi `ruff`, `mypy` e `pytest`.

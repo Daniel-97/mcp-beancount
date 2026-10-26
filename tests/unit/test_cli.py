@@ -201,6 +201,40 @@ def testMainServer_shouldPassStdioTransport_whenTransportIsSpecified(
     assert configs[0].transport == "stdio"
 
 
+def testMainServer_shouldPassAllowEditOutsideInbox_whenFlagIsPresent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main([str(ledger), "--allow-edit-outside-inbox"])
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].allow_edit_outside_inbox is True
+
+
+def testMainServer_shouldPassQueryLimit_whenValidLimitIsProvided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main([str(ledger), "--query-limit", "250"])
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].query_limit == 250
+
+
 def testMainServer_shouldExitCleanly_whenHelpIsRequested() -> None:
     # Given
     arguments = ["--help"]

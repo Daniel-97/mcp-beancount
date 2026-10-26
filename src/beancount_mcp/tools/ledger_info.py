@@ -8,14 +8,29 @@ from typing import Any
 
 from beancount.core.data import Close, Directive, Open, Transaction
 
-from beancount_mcp.ledger import LedgerService, LedgerSnapshot
+from beancount_mcp.errors import ErrorInfo, error_response
+from beancount_mcp.ledger import LedgerError, LedgerService, LedgerSnapshot
 
 TOP_VALUES_LIMIT = 10
+LEDGER_ERROR_HINT = (
+    "Verifica che il ledger esista e sia leggibile. "
+    "Se è stato spostato, riavvia il server con il nuovo percorso."
+)
 
 
 def build_ledger_info(service: LedgerService) -> dict[str, Any]:
     """Build the compact ledger overview returned by the MCP tool."""
-    snapshot = service.load()
+    try:
+        snapshot = service.load()
+    except (LedgerError, OSError) as exc:
+        return error_response(
+            ErrorInfo(
+                code="LEDGER_ERROR",
+                message=str(exc),
+                hint=LEDGER_ERROR_HINT,
+            )
+        )
+
     transactions = [entry for entry in snapshot.entries if isinstance(entry, Transaction)]
     tags = (tag for transaction in transactions for tag in transaction.tags)
     links = (link for transaction in transactions for link in transaction.links)
@@ -42,6 +57,7 @@ def build_ledger_info(service: LedgerService) -> dict[str, Any]:
             "warning": snapshot.inbox.warning,
         },
         "read_only": service.config.read_only,
+        "allow_edit_outside_inbox": service.config.allow_edit_outside_inbox,
         "is_empty": snapshot.is_empty,
         "warnings": _warnings(snapshot),
     }

@@ -114,8 +114,8 @@ def testBuildLedgerInfo_shouldCountPreexistingErrors_whenLedgerHasErrors(
 
     # Then
     assert info["ok"] is True
-    assert info["error_count"] >= 1
-    assert any("errore" in warning for warning in info["warnings"])
+    assert info["error_count"] == 1
+    assert "Il ledger contiene 1 errore preesistente." in info["warnings"]
 
 
 def testBuildLedgerInfo_shouldSortTopTagsAndLinks_whenValuesRepeat(
@@ -190,6 +190,34 @@ def testBuildLedgerInfo_shouldReportEmpty_whenLedgerHasNoEntries(
     # Then
     assert info["is_empty"] is True
     assert any("open_account" in warning for warning in info["warnings"])
+
+
+def testBuildLedgerInfo_shouldReportAllowEditOutsideInbox_whenConfigEnablesIt(
+    fixtures_dir: Path,
+) -> None:
+    # Given
+    ledger = fixtures_dir / "minimal"
+
+    # When
+    info = _info(ledger, allow_edit_outside_inbox=True)
+
+    # Then
+    assert info["allow_edit_outside_inbox"] is True
+
+
+def testBuildLedgerInfo_shouldReturnStructuredError_whenLedgerIsMissing(
+    tmp_path: Path,
+) -> None:
+    # Given
+    config = build_config(str(tmp_path / "missing.bean"))
+
+    # When
+    info = build_ledger_info(LedgerService(config))
+
+    # Then
+    assert info["ok"] is False
+    assert info["error"]["code"] == "LEDGER_ERROR"
+    assert info["error"]["hint"] is not None
 
 
 def testBuildLedgerInfo_shouldReturnServiceVersion_whenLedgerIsLoaded(

@@ -63,7 +63,7 @@ def build_config(
     if transport not in TRANSPORTS:
         raise ValueError(f"Trasporto non supportato: {transport!r}")
 
-    ledger_path = resolve_ledger_path(ledger, env)
+    ledger_path = Path(os.path.realpath(resolve_ledger_path(ledger, env)))
     return Config(
         ledger_path=ledger_path,
         inbox_path=resolve_inbox_path(ledger_path, inbox),

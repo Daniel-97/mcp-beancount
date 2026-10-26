@@ -66,9 +66,10 @@ uv run beancount-mcp /percorso/main.bean --read-only --inbox inbox.bean
 
 Nessun parametro. Restituisce file inclusi, versione del ledger, valute
 operative, account con date e valute, intervallo delle transazioni, numero di
-errori preesistenti, tag/link più usati, stato dell'inbox e modalità read-only.
-Va chiamato a inizio sessione; la versione restituita può essere usata come
-`expected_ledger_version` dai tool di scrittura.
+errori preesistenti, tag/link più usati, stato dell'inbox, modalità read-only e
+se le modifiche fuori dall'inbox sono abilitate. Va chiamato a inizio sessione;
+la versione restituita può essere usata come `expected_ledger_version` dai tool
+di scrittura.
 
 ## Documentazione
 
