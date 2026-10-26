@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -20,10 +21,11 @@ def testMainInit_shouldCreateLedgerAndReportPaths_whenPathIsExplicit(
 
     # Then
     captured = capsys.readouterr()
+    expected = expected_main_ledger.replace("2026-10-25", date.today().isoformat())
     assert exit_code == 0
     assert f"Ledger creato: {ledger}" in captured.out
     assert f"Inbox creata: {tmp_path / 'inbox.bean'}" in captured.out
-    assert ledger.read_text(encoding="utf-8") == expected_main_ledger
+    assert ledger.read_text(encoding="utf-8") == expected
 
 
 def testMainInit_shouldReturnErrorAndKeepLedger_whenLedgerAlreadyExists(

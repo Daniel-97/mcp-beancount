@@ -245,8 +245,8 @@ Risposta esatta:
     "accounts": [
         {
             "account": str,
-            "open_date": str | None,      # ISO
-            "close_date": str | None,     # ISO
+            "open_date": str | None,  # ISO
+            "close_date": str | None,  # ISO
             "currencies": list[str] | None,
             "is_open": bool,
         }
