@@ -58,7 +58,7 @@ tests/
   unit/
     test_config.py       # esteso
     test_ledger.py       # nuovo
-    test_ledger_info.py  # nuovo
+    test_ledger_info_helpers.py  # nuovo
     test_cli.py          # esteso
     test_server.py       # esteso
   integration/
@@ -355,7 +355,7 @@ git commit -m "feat(M1): expose ledger_info MCP tool"
 - Create: `tests/fixtures/multifile/accounts/accounts.bean`
 - Create: `tests/fixtures/multifile/accounts/cash.bean`
 - Create: `tests/unit/test_ledger.py`
-- Create: `tests/unit/test_ledger_info.py`
+- Create: `tests/unit/test_ledger_info_helpers.py`
 - Create: `tests/integration/test_ledger_service.py`
 - Create: `tests/integration/test_ledger_info.py`
 - Modify: `tests/unit/test_config.py`
@@ -508,7 +508,7 @@ Nomi e asserzioni minime:
 uv run pytest -q
 ```
 
-Expected: tutti i test passano (numero atteso aggiornato a fine implementazione).
+Expected: `88 passed`.
 
 - [ ] **Step 7: Mutation check**
 

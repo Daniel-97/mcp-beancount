@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from beancount_mcp.config import default_ledger_path, resolve_ledger_path
+from beancount_mcp.config import (
+    build_config,
+    default_ledger_path,
+    resolve_inbox_path,
+    resolve_ledger_path,
+)
 
 
 def testResolveLedgerPath_shouldPreferExplicitPath_whenEnvironmentIsSet(
@@ -115,3 +120,84 @@ def testResolveLedgerPath_shouldKeepSymlinkPath_whenTargetIsSymlink(
 
     # Then
     assert result == link
+
+
+def testResolveInboxPath_shouldBeRelativeToLedgerDirectory_whenInboxIsRelative(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "ledger" / "main.bean"
+
+    # When
+    result = resolve_inbox_path(ledger, "sub/inbox.bean")
+
+    # Then
+    assert result == tmp_path / "ledger" / "sub" / "inbox.bean"
+
+
+def testResolveInboxPath_shouldKeepAbsolutePath_whenInboxIsAbsolute(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "ledger" / "main.bean"
+    inbox = tmp_path / "absolute" / "inbox.bean"
+
+    # When
+    result = resolve_inbox_path(ledger, str(inbox))
+
+    # Then
+    assert result == inbox
+
+
+@pytest.mark.parametrize("limit", [0, 1001])
+def testBuildConfig_shouldValidateQueryLimit_whenLimitIsOutsideRange(
+    tmp_path: Path, limit: int
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    with pytest.raises(ValueError, match="--query-limit") as raised:
+        build_config(str(ledger), query_limit=limit)
+
+    # Then
+    assert "--query-limit" in str(raised.value)
+
+
+def testBuildConfig_shouldRejectUnsupportedTransport_whenTransportIsNotStdio(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    with pytest.raises(ValueError, match="Trasporto non supportato") as raised:
+        build_config(str(ledger), transport="http")
+
+    # Then
+    assert "http" in str(raised.value)
+
+
+def testBuildConfig_shouldCombineLedgerInboxAndFlags_whenAllOptionsAreProvided(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "ledger" / "main.bean"
+
+    # When
+    config = build_config(
+        str(ledger),
+        inbox="sub/inbox.bean",
+        read_only=True,
+        allow_edit_outside_inbox=True,
+        query_limit=250,
+        transport="stdio",
+    )
+
+    # Then
+    assert config.ledger_path == ledger
+    assert config.inbox_path == tmp_path / "ledger" / "sub" / "inbox.bean"
+    assert config.read_only is True
+    assert config.allow_edit_outside_inbox is True
+    assert config.query_limit == 250
+    assert config.transport == "stdio"

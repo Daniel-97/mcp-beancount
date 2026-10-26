@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+
+
+@pytest.fixture
+def fixtures_dir() -> Path:
+    """Return the directory containing the ledger fixtures."""
+    return Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture

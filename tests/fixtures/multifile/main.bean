@@ -1,0 +1,4 @@
+option "title" "Multifile"
+option "operating_currency" "EUR"
+include "accounts/accounts.bean"
+include "inbox.bean"

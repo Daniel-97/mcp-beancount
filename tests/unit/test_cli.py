@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from beancount_mcp import cli, server
+from beancount_mcp.config import Config
 
 
 def testMainInit_shouldCreateLedgerAndReportPaths_whenPathIsExplicit(
@@ -82,15 +83,16 @@ def testMainServer_shouldStartServer_whenLedgerExists(
     # Given
     ledger = tmp_path / "main.bean"
     ledger.touch()
-    calls: list[None] = []
-    monkeypatch.setattr(server, "run", lambda: calls.append(None))
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
 
     # When
     exit_code = cli.main([str(ledger)])
 
     # Then
     assert exit_code == 0
-    assert calls == [None]
+    assert len(configs) == 1
+    assert configs[0].ledger_path == ledger
 
 
 def testMainServer_shouldSuggestSamePath_whenExplicitLedgerIsMissing(
@@ -98,8 +100,8 @@ def testMainServer_shouldSuggestSamePath_whenExplicitLedgerIsMissing(
 ) -> None:
     # Given
     missing = tmp_path / "missing" / "main.bean"
-    calls: list[None] = []
-    monkeypatch.setattr(server, "run", lambda: calls.append(None))
+    calls: list[Config] = []
+    monkeypatch.setattr(server, "run", calls.append)
 
     # When
     exit_code = cli.main([str(missing)])
@@ -118,8 +120,8 @@ def testMainServer_shouldShowBothStartingPaths_whenDefaultLedgerIsMissing(
 ) -> None:
     # Given
     monkeypatch.setenv("BEANCOUNT_MCP_LEDGER", str(tmp_path / "missing.bean"))
-    calls: list[None] = []
-    monkeypatch.setattr(server, "run", lambda: calls.append(None))
+    calls: list[Config] = []
+    monkeypatch.setattr(server, "run", calls.append)
 
     # When
     exit_code = cli.main([])
@@ -130,6 +132,73 @@ def testMainServer_shouldShowBothStartingPaths_whenDefaultLedgerIsMissing(
     assert calls == []
     assert "beancount-mcp init --currency EUR" in captured.err
     assert "beancount-mcp /percorso/main.bean" in captured.err
+
+
+def testMainServer_shouldPassReadOnlyConfig_whenReadOnlyFlagIsPresent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main([str(ledger), "--read-only"])
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].read_only is True
+
+
+def testMainServer_shouldPassResolvedInbox_whenInboxOptionIsPresent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "ledger" / "main.bean"
+    ledger.parent.mkdir()
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main([str(ledger), "--inbox", "sub/inbox.bean"])
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].inbox_path == ledger.parent / "sub" / "inbox.bean"
+
+
+def testMainServer_shouldRejectInvalidQueryLimit_whenLimitIsOutsideRange(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+
+    # When
+    with pytest.raises(SystemExit) as raised:
+        cli.main([str(ledger), "--query-limit", "0"])
+
+    # Then
+    assert raised.value.code == 2
+
+
+def testMainServer_shouldPassStdioTransport_whenTransportIsSpecified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main([str(ledger), "--transport", "stdio"])
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].transport == "stdio"
 
 
 def testMainServer_shouldExitCleanly_whenHelpIsRequested() -> None:

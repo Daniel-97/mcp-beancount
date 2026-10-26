@@ -1,0 +1,9 @@
+option "title" "No Inbox"
+option "operating_currency" "EUR"
+
+2026-01-01 open Assets:Cash EUR
+2026-01-01 open Expenses:Food
+
+2026-01-02 * "Shop" "Lunch"
+  Expenses:Food   10.00 EUR
+  Assets:Cash    -10.00 EUR

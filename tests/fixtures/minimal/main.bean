@@ -1,0 +1,14 @@
+option "title" "Minimal"
+option "operating_currency" "EUR"
+include "inbox.bean"
+
+2026-01-01 open Assets:Cash EUR
+2026-01-01 open Expenses:Food
+
+2026-01-02 * "Shop" "Lunch" #food ^lunch
+  Expenses:Food   10.00 EUR
+  Assets:Cash    -10.00 EUR
+
+2026-01-03 * "Shop" "Dinner" #food #travel ^lunch
+  Expenses:Food   20.00 EUR
+  Assets:Cash    -20.00 EUR
