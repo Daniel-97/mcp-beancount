@@ -55,6 +55,8 @@ def testCreateServer_shouldExposeReadTools_whenCreated(tmp_path: Path) -> None:
         "validate",
         "add_transactions",
         "open_account",
+        "edit_transaction",
+        "delete_transaction",
     ]
 
 

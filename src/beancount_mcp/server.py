@@ -8,6 +8,12 @@ from mcp.server import MCPServer
 
 from beancount_mcp import __version__
 from beancount_mcp.config import Config
+from beancount_mcp.entry_service import (
+    delete_transaction as delete_transaction_service,
+)
+from beancount_mcp.entry_service import (
+    edit_transaction as edit_transaction_service,
+)
 from beancount_mcp.ledger import LedgerService
 from beancount_mcp.tools.add_transactions import add_transactions as add_transactions_tool
 from beancount_mcp.tools.ledger_info import build_ledger_info
@@ -126,6 +132,51 @@ def create_server(config: Config) -> MCPServer:
             confirm_new=confirm_new,
             dry_run=dry_run,
         )
+
+    @mcp.tool()
+    def edit_transaction(
+        entry_id: dict[str, Any],
+        new_text: str,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Replace one ledger directive identified by a stable entry_id.
+
+        entry_id is the object returned by find_transactions:
+        {"file": str, "line": int, "hash": str}. By default only inbox entries
+        can be edited; other included files require --allow-edit-outside-inbox.
+        The change is validated before/after and written atomically. If the
+        directive changed since the id was issued, the tool returns
+        ENTRY_CHANGED with the current text.
+
+        Examples:
+        - Change the narration of an inbox transaction.
+        - Correct a posting amount, keeping the transaction balanced.
+        - Use dry_run=true to preview the replacement.
+        """
+        return edit_transaction_service(
+            service,
+            entry_id,
+            new_text,
+            dry_run=dry_run,
+        )
+
+    @mcp.tool()
+    def delete_transaction(
+        entry_id: dict[str, Any],
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Delete one transaction identified by a stable entry_id.
+
+        Only transactions can be deleted; open, close, balance, and pad are
+        rejected. By default only inbox entries are eligible; other included
+        files require --allow-edit-outside-inbox. The write is atomic and
+        validated before/after.
+
+        Examples:
+        - Delete a transaction previously added to the inbox.
+        - Use dry_run=true to inspect the transaction that would be removed.
+        """
+        return delete_transaction_service(service, entry_id, dry_run=dry_run)
 
     return mcp
 

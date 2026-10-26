@@ -40,7 +40,7 @@ def write_inbox_text(
 ) -> dict[str, Any]:
     """Append directives to the inbox after full validation."""
     if service.config.read_only:
-        return _error(
+        return tool_error(
             "READ_ONLY",
             "Il server è in modalità sola lettura.",
             "Riavvia il server senza --read-only per abilitare le scritture.",
@@ -64,7 +64,7 @@ def write_inbox_text(
             )
     except LockError as exc:
         lock = lock_path_for(service.config.ledger_path)
-        return _error(
+        return tool_error(
             "LOCKED",
             str(exc),
             "Un'altra scrittura è in corso. Riprova tra poco; se il processo è "
@@ -82,10 +82,10 @@ def _write_inbox_text(
     try:
         snapshot = service.load()
     except (LedgerError, OSError) as exc:
-        return _error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
 
     if not snapshot.inbox.included:
-        return _error(
+        return tool_error(
             "INBOX_NOT_INCLUDED",
             "L'inbox non esiste o non è inclusa dal ledger.",
             snapshot.inbox.warning
@@ -94,7 +94,7 @@ def _write_inbox_text(
         )
 
     if expected_ledger_version is not None and expected_ledger_version != snapshot.version:
-        return _error(
+        return tool_error(
             "VERSION_CONFLICT",
             "La versione del ledger non coincide con expected_ledger_version.",
             "Ricarica ledger_info e riprova con la versione corrente.",
@@ -114,7 +114,7 @@ def _write_inbox_text(
     try:
         existing = snapshot.inbox.path.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        return _error(
+        return tool_error(
             "LEDGER_ERROR",
             f"Impossibile leggere l'inbox: {exc}",
             "Verifica che l'inbox esista, sia leggibile e codificata in UTF-8.",
@@ -130,14 +130,14 @@ def _write_inbox_text(
             snapshot.errors,
         )
     except OSError as exc:
-        return _error(
+        return tool_error(
             "LEDGER_ERROR",
             f"Impossibile validare la modifica: {exc}",
             "Verifica che tutti i file del ledger siano leggibili.",
         )
 
     if new_issues:
-        return _validation_failed(new_issues, snapshot)
+        return validation_failed_response(new_issues, snapshot)
 
     if dry_run:
         return _success(
@@ -151,10 +151,10 @@ def _write_inbox_text(
     try:
         current = service.load()
     except (LedgerError, OSError) as exc:
-        return _error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
 
     if current.version != snapshot.version:
-        return _error(
+        return tool_error(
             "VERSION_CONFLICT",
             "Il ledger è cambiato durante la validazione.",
             "Ricarica ledger_info e riprova con la versione corrente.",
@@ -169,7 +169,7 @@ def _write_inbox_text(
     try:
         atomic_write(snapshot.inbox.path, proposed_content)
     except OSError as exc:
-        return _error(
+        return tool_error(
             "LEDGER_ERROR",
             f"Impossibile scrivere l'inbox: {exc}",
             "Verifica i permessi della directory dell'inbox e riprova.",
@@ -178,7 +178,7 @@ def _write_inbox_text(
     try:
         after = service.load()
     except (LedgerError, OSError) as exc:
-        return _error(
+        return tool_error(
             "LEDGER_ERROR",
             f"Scrittura completata ma il ledger non è ricaricabile: {exc}",
             "Controlla il ledger con validate e verifica i file su disco.",
@@ -192,13 +192,13 @@ def _parse_proposed_text(
     inbox_path: Path,
 ) -> list[Directive] | dict[str, Any]:
     if not text.strip():
-        return _error(
+        return tool_error(
             "VALIDATION_FAILED",
             "Il testo non contiene direttive.",
             "Invia una o più direttive Beancount, ad esempio una transazione.",
         )
     if _FORBIDDEN_LINE_RE.search(text):
-        return _error(
+        return tool_error(
             "VALIDATION_FAILED",
             "Il testo contiene una direttiva include o plugin non ammessa.",
             "Rimuovi include e plugin: le scritture possono solo aggiungere "
@@ -210,7 +210,7 @@ def _parse_proposed_text(
         report_filename=str(inbox_path),
     )
     if errors:
-        return _error(
+        return tool_error(
             "SYNTAX_ERROR",
             "Il testo non è Beancount valido.",
             "Correggi la sintassi indicata nei details e riprova.",
@@ -219,7 +219,7 @@ def _parse_proposed_text(
 
     forbidden = [entry for entry in entries if isinstance(entry, (Pad, Balance))]
     if forbidden:
-        return _error(
+        return tool_error(
             "VALIDATION_FAILED",
             "Il testo contiene direttive pad o balance.",
             "I tool di scrittura non possono aggiungere pad o balance.",
@@ -231,13 +231,13 @@ def _parse_proposed_text(
     return entries
 
 
-def _validation_failed(
+def validation_failed_response(
     issues: list[Issue],
     snapshot: LedgerSnapshot,
 ) -> dict[str, Any]:
     count = len(issues)
     noun = "errore nuovo" if count == 1 else "errori nuovi"
-    return _error(
+    return tool_error(
         "VALIDATION_FAILED",
         f"La scrittura introdurrebbe {count} {noun}.",
         _validation_hint(issues, snapshot),
@@ -302,7 +302,7 @@ def _success(
     return result
 
 
-def _error(
+def tool_error(
     code: str,
     message: str,
     hint: str,

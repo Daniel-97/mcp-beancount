@@ -122,6 +122,22 @@ open_account("Expenses:Restaurant", ["EUR"])
 Rifiuta account già aperti, nomi simili (`ACCOUNT_SIMILAR_EXISTS`) e radici non
 ammesse. `confirm_new=true` consente di aprire comunque un nome simile.
 
+### `edit_transaction`
+
+Sostituisce una direttiva identificata da `entry_id`
+(`{"file", "line", "hash"}`), restituito da `find_transactions`. Parametri:
+`entry_id`, `new_text`, `dry_run`.
+
+Di default funziona solo sull'inbox; con `--allow-edit-outside-inbox` anche su
+file inclusi dentro la directory del ledger. Se il contenuto è cambiato
+dall'emissione dell'id, risponde `ENTRY_CHANGED` con il testo corrente.
+
+### `delete_transaction`
+
+Elimina una transazione identificata da `entry_id`. Parametri: `entry_id`,
+`dry_run`. Non elimina `open`, `close`, `balance` o `pad`. Valgono le stesse
+regole di path e validazione di `edit_transaction`.
+
 ## Documentazione
 
 - Specifica: [`spec.md`](spec.md)

@@ -135,6 +135,21 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
   simili (`confirm_new` per procedere), valida le valute e usa oggi come data
   predefinita.
 
+## Identità e modifica delle entry
+
+- `entry_id` è un oggetto `{"file": path assoluto, "line": int, "hash": sha256}`.
+- Lo span di una direttiva parte da una riga non vuota e non indentata e arriva
+  alla riga precedente la successiva riga con le stesse caratteristiche.
+- L'hash è SHA-256 del testo UTF-8 dello span, righe vuote finali incluse.
+- Se il file o la riga non esistono → `ENTRY_NOT_FOUND`; se l'hash non coincide →
+  `ENTRY_CHANGED` con `current_text` e `current_hash`.
+- Senza `--allow-edit-outside-inbox` sono modificabili solo entry dell'inbox.
+- Con il flag, il file deve essere incluso e dentro la directory del ledger dopo
+  `realpath`; altrimenti `PATH_NOT_ALLOWED`.
+- `delete_transaction` accetta solo transazioni; open/close/balance/pad sono
+  rifiutati.
+- Edit e delete usano lock, staging, validazione prima/dopo e scrittura atomica.
+
 ## Test e CI
 
 Su richiesta esplicita dell'utente, i test automatici vengono scritti **alla fine
