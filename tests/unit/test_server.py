@@ -49,7 +49,7 @@ def testCreateServer_shouldExposeReadTools_whenCreated(tmp_path: Path) -> None:
     tools = asyncio.run(mcp_server.list_tools())
 
     # Then
-    assert [tool.name for tool in tools] == ["ledger_info", "query"]
+    assert [tool.name for tool in tools] == ["ledger_info", "query", "validate"]
 
 
 def testCreateServer_shouldReturnOkFromLedgerInfo_whenToolIsCalled(

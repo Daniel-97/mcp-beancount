@@ -1,0 +1,14 @@
+option "title" "With Errors"
+option "operating_currency" "EUR"
+include "inbox.bean"
+
+2026-01-01 open Assets:Cash EUR
+2026-01-01 open Expenses:Food
+
+2026-01-02 * "Shop" "Unbalanced"
+  Expenses:Food   10.00 EUR
+  Assets:Cash     -5.00 EUR
+
+2026-01-03 * "Shop" "Unopened"
+  Expenses:Travel   7.00 EUR
+  Assets:Cash      -7.00 EUR

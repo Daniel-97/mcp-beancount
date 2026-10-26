@@ -101,6 +101,19 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
 - Le colonne riportano nome e tipo (`string`, `integer`, `decimal`, `date`,
   `datetime`, `boolean`, `amount`, `position`, `inventory`).
 
+## Validazione prima/dopo
+
+- La firma di un errore è `(tipo, messaggio)`; i numeri di riga e i path non
+  entrano nel confronto.
+- Il confronto è un multiset: gli errori preesistenti vengono sottratti e solo
+  quelli nuovi sono bloccanti.
+- `ErrorMultisetValidator` implementa il protocollo `Validator` su viste con
+  `errors`.
+- Il tool `validate` restituisce `ok`, `valid`, `ledger_version`, `error_count`
+  ed `errors` con `type`, `message`, `file`, `line`.
+- Il fixture `with_errors` contiene una transazione sbilanciata e un account non
+  aperto, per verificare il confronto e la reportistica.
+
 ## Test e CI
 
 Su richiesta esplicita dell'utente, i test automatici vengono scritti **alla fine

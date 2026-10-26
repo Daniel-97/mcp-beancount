@@ -11,6 +11,7 @@ from beancount_mcp.config import Config
 from beancount_mcp.ledger import LedgerService
 from beancount_mcp.tools.ledger_info import build_ledger_info
 from beancount_mcp.tools.query import run_query
+from beancount_mcp.tools.validate import build_validation
 
 
 def create_server(config: Config) -> MCPServer:
@@ -54,6 +55,20 @@ def create_server(config: Config) -> MCPServer:
         - SELECT filename, lineno, date, payee ORDER BY date DESC
         """
         return run_query(service, bql=bql, limit=limit, offset=offset)
+
+    @mcp.tool()
+    def validate() -> dict[str, Any]:
+        """Run a full validation of the current ledger.
+
+        Returns all current Beancount errors with file, line, type, and message.
+        Preexisting errors do not block reads or writes; use this tool to inspect
+        them. The response also contains the ledger version.
+
+        Examples:
+        - Call after editing files outside the server.
+        - Call after ledger_info reports a nonzero error_count.
+        """
+        return build_validation(service)
 
     return mcp
 

@@ -87,6 +87,13 @@ SELECT date, payee, narration, position WHERE account = 'Expenses:Food' ORDER BY
 La risposta contiene `columns`, `rows`, `limit`, `offset`, `truncated` e
 `total_rows`. Gli importi sono stringhe.
 
+### `validate`
+
+Nessun parametro. Esegue la validazione completa del ledger e restituisce tutti
+gli errori correnti con file, riga, tipo e messaggio, oltre a `valid` e
+`ledger_version`. Gli errori preesistenti non bloccano le scritture; solo quelli
+nuovi verranno rifiutati dai tool di modifica.
+
 ## Documentazione
 
 - Specifica: [`spec.md`](spec.md)
