@@ -7,7 +7,12 @@ import sys
 from collections.abc import Sequence
 
 from beancount_mcp import server
-from beancount_mcp.config import resolve_ledger_path
+from beancount_mcp.config import (
+    DEFAULT_INBOX,
+    DEFAULT_QUERY_LIMIT,
+    build_config,
+    resolve_ledger_path,
+)
 from beancount_mcp.init import InitError, create_ledger
 
 SERVER_DESCRIPTION = "MCP server for querying and safely editing Beancount ledgers."
@@ -63,15 +68,53 @@ def _run_server(argv: Sequence[str]) -> int:
         help="Path of the main ledger file. Defaults to BEANCOUNT_MCP_LEDGER or "
         "~/.beancount-mcp/ledger/main.bean.",
     )
+    parser.add_argument(
+        "--inbox",
+        default=DEFAULT_INBOX,
+        help="Inbox path, relative to the ledger directory (default: inbox.bean).",
+    )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Disable all write tools.",
+    )
+    parser.add_argument(
+        "--allow-edit-outside-inbox",
+        action="store_true",
+        help="Allow edit/delete on included files outside the inbox.",
+    )
+    parser.add_argument(
+        "--query-limit",
+        type=int,
+        default=DEFAULT_QUERY_LIMIT,
+        help=f"Default row limit for queries (default: {DEFAULT_QUERY_LIMIT}).",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio"],
+        default="stdio",
+        help="MCP transport (default: stdio).",
+    )
     args = parser.parse_args(argv)
 
-    ledger_path = resolve_ledger_path(args.ledger)
-    if not ledger_path.is_file():
-        print(f"Ledger non trovato: {ledger_path}", file=sys.stderr)
+    try:
+        config = build_config(
+            args.ledger,
+            inbox=args.inbox,
+            read_only=args.read_only,
+            allow_edit_outside_inbox=args.allow_edit_outside_inbox,
+            query_limit=args.query_limit,
+            transport=args.transport,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    if not config.ledger_path.is_file():
+        print(f"Ledger non trovato: {config.ledger_path}", file=sys.stderr)
         if args.ledger:
             print(
                 "Controlla il percorso oppure crea un nuovo ledger con: "
-                f"beancount-mcp init {ledger_path} --currency EUR",
+                f"beancount-mcp init {config.ledger_path} --currency EUR",
                 file=sys.stderr,
             )
         else:
@@ -85,5 +128,5 @@ def _run_server(argv: Sequence[str]) -> int:
             )
         return 2
 
-    server.run()
+    server.run(config)
     return 0

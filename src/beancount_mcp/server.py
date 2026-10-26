@@ -5,6 +5,7 @@ from __future__ import annotations
 from mcp.server import MCPServer
 
 from beancount_mcp import __version__
+from beancount_mcp.config import Config
 
 
 def create_server() -> MCPServer:
@@ -12,6 +13,6 @@ def create_server() -> MCPServer:
     return MCPServer("beancount-mcp", version=__version__)
 
 
-def run() -> None:
+def run(config: Config) -> None:
     """Run the MCP server over stdio."""
     create_server().run()
