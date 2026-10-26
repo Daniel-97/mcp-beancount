@@ -40,7 +40,7 @@ def testCreateServer_shouldUsePackageVersion_whenServerIsCreated(
     assert mcp_server.version == expected_version
 
 
-def testCreateServer_shouldExposeLedgerInfoTool_whenCreated(tmp_path: Path) -> None:
+def testCreateServer_shouldExposeReadTools_whenCreated(tmp_path: Path) -> None:
     # Given
     config = build_config(str(tmp_path / "main.bean"))
     mcp_server = create_server(config)
@@ -49,7 +49,7 @@ def testCreateServer_shouldExposeLedgerInfoTool_whenCreated(tmp_path: Path) -> N
     tools = asyncio.run(mcp_server.list_tools())
 
     # Then
-    assert [tool.name for tool in tools] == ["ledger_info"]
+    assert [tool.name for tool in tools] == ["ledger_info", "query"]
 
 
 def testCreateServer_shouldReturnOkFromLedgerInfo_whenToolIsCalled(

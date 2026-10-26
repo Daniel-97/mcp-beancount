@@ -88,6 +88,19 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
 - Un ledger mancante termina il server con exit code 2 e un messaggio che rimanda
   a `init` o al percorso corretto.
 
+## Tool `query`
+
+- Statement ammessi: `SELECT`, `BALANCES`, `JOURNAL`. `PRINT`, `CREATE TABLE`,
+  `INSERT` e qualsiasi altro statement sono rifiutati con `QUERY_ERROR`.
+- `total_rows` viene letto da `cursor.rowcount` prima di consumare il cursore;
+  `truncated` è vero quando esiste almeno una riga oltre `limit`.
+- `limit` è 1–1000; se omesso usa `Config.query_limit`. `offset` deve essere
+  `>= 0`. Violazioni → `LIMIT_EXCEEDED`.
+- Serializzazione: `Decimal` come stringa, `Amount`/`Position`/`Inventory` come
+  stringa, date/datetime ISO, set come lista ordinata, float come stringa.
+- Le colonne riportano nome e tipo (`string`, `integer`, `decimal`, `date`,
+  `datetime`, `boolean`, `amount`, `position`, `inventory`).
+
 ## Test e CI
 
 Su richiesta esplicita dell'utente, i test automatici vengono scritti **alla fine

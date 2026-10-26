@@ -19,6 +19,12 @@ class LedgerError(Exception):
     """Raised when the ledger cannot be loaded."""
 
 
+LEDGER_ERROR_HINT = (
+    "Verifica che il ledger esista e sia leggibile. "
+    "Se è stato spostato, riavvia il server con il nuovo percorso."
+)
+
+
 @dataclass(frozen=True, slots=True)
 class InboxStatus:
     """Whether the inbox exists and is included by the ledger."""

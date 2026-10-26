@@ -10,6 +10,7 @@ from beancount_mcp import __version__
 from beancount_mcp.config import Config
 from beancount_mcp.ledger import LedgerService
 from beancount_mcp.tools.ledger_info import build_ledger_info
+from beancount_mcp.tools.query import run_query
 
 
 def create_server(config: Config) -> MCPServer:
@@ -33,6 +34,26 @@ def create_server(config: Config) -> MCPServer:
         - Check inbox.included before attempting any write.
         """
         return build_ledger_info(service)
+
+    @mcp.tool()
+    def query(
+        bql: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Execute a read-only BQL query against the current ledger.
+
+        Only tabular read statements are accepted: SELECT, BALANCES, JOURNAL.
+        PRINT, CREATE TABLE and INSERT are rejected. Rows are paginated with
+        limit (1-1000, default from server configuration) and offset.
+
+        Examples:
+        - SELECT account, SUM(position) WHERE date >= 2026-01-01 GROUP BY account
+        - SELECT date, payee, narration, position WHERE account = 'Expenses:Food' ORDER BY date DESC
+        - SELECT date, payee, narration WHERE payee = 'Shop'
+        - SELECT filename, lineno, date, payee ORDER BY date DESC
+        """
+        return run_query(service, bql=bql, limit=limit, offset=offset)
 
     return mcp
 

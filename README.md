@@ -71,6 +71,22 @@ se le modifiche fuori dall'inbox sono abilitate. Va chiamato a inizio sessione;
 la versione restituita può essere usata come `expected_ledger_version` dai tool
 di scrittura.
 
+### `query`
+
+Esegue query BQL di sola lettura (`SELECT`, `BALANCES`, `JOURNAL`) con
+paginazione. Parametri: `bql`, `limit` (1–1000, default dalla configurazione),
+`offset`.
+
+Esempi:
+
+```sql
+SELECT account, SUM(position) WHERE date >= 2026-01-01 GROUP BY account
+SELECT date, payee, narration, position WHERE account = 'Expenses:Food' ORDER BY date DESC
+```
+
+La risposta contiene `columns`, `rows`, `limit`, `offset`, `truncated` e
+`total_rows`. Gli importi sono stringhe.
+
 ## Documentazione
 
 - Specifica: [`spec.md`](spec.md)

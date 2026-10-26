@@ -9,13 +9,14 @@ from typing import Any
 from beancount.core.data import Close, Directive, Open, Transaction
 
 from beancount_mcp.errors import ErrorInfo, error_response
-from beancount_mcp.ledger import LedgerError, LedgerService, LedgerSnapshot
+from beancount_mcp.ledger import (
+    LEDGER_ERROR_HINT,
+    LedgerError,
+    LedgerService,
+    LedgerSnapshot,
+)
 
 TOP_VALUES_LIMIT = 10
-LEDGER_ERROR_HINT = (
-    "Verifica che il ledger esista e sia leggibile. "
-    "Se è stato spostato, riavvia il server con il nuovo percorso."
-)
 
 
 def build_ledger_info(service: LedgerService) -> dict[str, Any]:
