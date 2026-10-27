@@ -508,8 +508,8 @@ def testAddTransactions_shouldExplainActiveInterval_whenAccountOpenedAndClosed(
     ledger = ledger_factory(
         'option "operating_currency" "EUR"\n'
         'include "inbox.bean"\n'
+        "2026-01-01 open Expenses:Food\n"
         "2026-01-02 open Assets:Cash EUR\n"
-        "2026-01-02 open Expenses:Food\n"
         "2026-01-10 close Assets:Cash\n"
     )
     service = _service(ledger)
