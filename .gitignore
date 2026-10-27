@@ -10,3 +10,4 @@ build/
 .coverage
 docs/
 test-ledger/
+.*.txn/

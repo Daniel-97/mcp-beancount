@@ -6,7 +6,7 @@ import glob
 import os
 import re
 import tempfile
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -37,11 +37,25 @@ def validate_staged_file(
     before_errors: Iterable[BeancountError],
 ) -> list[Issue]:
     """Load a staged copy with one modified file and return only new issues."""
+    return validate_staged_tree(
+        ledger_path,
+        files,
+        {modified_path: modified_content},
+        before_errors,
+    )
+
+
+def validate_staged_tree(
+    ledger_path: Path,
+    files: Iterable[Path],
+    modifications: Mapping[Path, str],
+    before_errors: Iterable[BeancountError],
+) -> list[Issue]:
+    """Load a staged copy with several modified files and return new issues."""
     with _staged_tree(
         files,
         ledger_path,
-        modified_path,
-        modified_content,
+        modifications,
     ) as (staged_main, path_map):
         _, errors, _ = loader.load_file(str(staged_main))
 
@@ -54,26 +68,28 @@ def validate_staged_file(
 def _staged_tree(
     files: Iterable[Path],
     ledger_path: Path,
-    modified_path: Path,
-    modified_content: str,
+    modifications: Mapping[Path, str],
 ) -> Iterator[tuple[Path, dict[str, Path]]]:
     with tempfile.TemporaryDirectory(prefix="beancount-mcp-stage-") as temporary:
         root = Path(temporary)
         path_map: dict[str, Path] = {}
-        modified_real = Path(os.path.realpath(modified_path))
-        applied = False
+        by_real_path = {
+            Path(os.path.realpath(path)): content for path, content in modifications.items()
+        }
+        applied: set[Path] = set()
         for source in files:
             source_real = Path(os.path.realpath(source))
             staged = _staged_path(root, source)
             staged.parent.mkdir(parents=True, exist_ok=True)
             path_map[str(staged)] = source
-            content = None
-            if source_real == modified_real:
-                content = modified_content
-                applied = True
+            content = by_real_path.get(source_real)
+            if content is not None:
+                applied.add(source_real)
             _stage_file(source, staged, root, ledger_path, content)
-        if not applied:
-            raise StagingError(f"Il file modificato non è incluso nel ledger: {modified_path}")
+        missing = set(by_real_path) - applied
+        if missing:
+            paths = ", ".join(str(path) for path in sorted(missing, key=str))
+            raise StagingError(f"File modificati non inclusi nel ledger: {paths}")
         yield _staged_path(root, ledger_path), path_map
 
 
