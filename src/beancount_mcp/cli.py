@@ -14,6 +14,7 @@ from beancount_mcp.config import (
     resolve_ledger_path,
 )
 from beancount_mcp.init import InitError, create_ledger
+from beancount_mcp.logging import log_event
 
 SERVER_DESCRIPTION = "MCP server for querying and safely editing Beancount ledgers."
 
@@ -115,7 +116,21 @@ def _run_server(argv: Sequence[str]) -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
+    log_event(
+        "config: "
+        f"ledger={config.ledger_path} inbox={config.inbox_path} "
+        f"read_only={config.read_only} "
+        f"allow_edit_outside_inbox={config.allow_edit_outside_inbox} "
+        f"query_limit={config.query_limit} transport={config.transport} "
+        f"verbose={config.verbose}",
+        verbose=config.verbose,
+    )
+
     if not config.ledger_path.is_file():
+        log_event(
+            f"startup: ledger not found: {config.ledger_path}",
+            verbose=config.verbose,
+        )
         print(f"Ledger non trovato: {config.ledger_path}", file=sys.stderr)
         if args.ledger:
             print(
@@ -134,6 +149,7 @@ def _run_server(argv: Sequence[str]) -> int:
             )
         return 2
 
+    log_event("startup: launching MCP server", verbose=config.verbose)
     try:
         server.run(config)
     except RuntimeError as exc:

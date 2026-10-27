@@ -19,6 +19,7 @@ from beancount_mcp.entry_service import (
     edit_transaction as edit_transaction_service,
 )
 from beancount_mcp.ledger import LedgerService
+from beancount_mcp.logging import log_event
 from beancount_mcp.multifile import (
     TransactionError,
     recover_pending_transaction,
@@ -87,39 +88,95 @@ def _logged(func: Callable[P, R], *, verbose: bool) -> Callable[P, R]:
 
 
 def _recover_on_startup(config: Config) -> None:
+    verbose = config.verbose
     directory = transaction_dir(config.ledger_path)
+    log_event(
+        "startup: checking for pending multi-file transactions",
+        verbose=verbose,
+    )
     if not directory.exists():
+        log_event("startup: no pending transaction", verbose=verbose)
         return
+
+    log_event(f"startup: pending transaction directory: {directory}", verbose=verbose)
     if config.read_only:
         committed = (directory / "committed").exists()
         journal = (directory / "journal.json").exists()
         if committed or not journal:
-            # Nothing to roll back: the ledger content is complete (committed)
-            # or no target file was written before the journal was created.
+            log_event(
+                "startup: read-only mode; committed/no-write transaction left "
+                "in place for a future writable start",
+                verbose=verbose,
+            )
             return
+        log_event(
+            "startup: read-only mode; uncommitted journal requires recovery",
+            verbose=verbose,
+        )
         raise RuntimeError(
             "Transazione multi-file pendente. Riavvia il server senza "
             f"--read-only per eseguire il recovery: {directory}"
         )
+    log_event("startup: acquiring ledger lock for recovery", verbose=verbose)
     try:
         with write_lock(config.ledger_path):
+            log_event("startup: recovering pending transaction", verbose=verbose)
             recover_pending_transaction(config.ledger_path)
+        log_event("startup: recovery completed", verbose=verbose)
     except LockError as exc:
+        log_event(f"startup: recovery lock unavailable: {exc}", verbose=verbose)
         raise RuntimeError(
             "Transazione multi-file pendente ma il lock del ledger è attivo. "
             f"Attendi la fine della scrittura o rimuovi il lock: {exc}"
         ) from exc
     except TransactionError as exc:
+        log_event(f"startup: recovery failed: {exc}", verbose=verbose)
         raise RuntimeError(f"Recovery della transazione multi-file fallito: {exc}") from exc
+
+
+def _log_ledger_diagnostics(service: LedgerService) -> None:
+    log_event("startup: loading ledger for diagnostics", verbose=True)
+    try:
+        snapshot = service.load()
+    except Exception as exc:
+        log_event(
+            f"startup: ledger load failed: {type(exc).__name__}: {exc}",
+            verbose=True,
+        )
+        return
+    log_event(
+        "startup: ledger loaded: "
+        f"files={len(snapshot.files)} entries={len(snapshot.entries)} "
+        f"errors={len(snapshot.errors)} version={snapshot.version}",
+        verbose=True,
+    )
+    log_event(
+        "startup: inbox: "
+        f"path={snapshot.inbox.path} exists={snapshot.inbox.exists} "
+        f"included={snapshot.inbox.included}",
+        verbose=True,
+    )
+    if snapshot.inbox.warning is not None:
+        log_event(f"startup: warning: {snapshot.inbox.warning}", verbose=True)
 
 
 def create_server(config: Config) -> MCPServer:
     """Create the MCP server with the ledger tools registered."""
+    verbose = config.verbose
+    log_event("startup: creating MCP server", verbose=verbose)
     _recover_on_startup(config)
     mcp = MCPServer("beancount-mcp", version=__version__)
     service = LedgerService(config)
+    log_event(
+        "startup: ledger service initialized (requests reload from disk)",
+        verbose=verbose,
+    )
+    if verbose:
+        _log_ledger_diagnostics(service)
+    registered: list[str] = []
 
     def tool(func: Callable[..., Any]) -> Any:
+        registered.append(func.__name__)
         return mcp.tool()(_logged(func, verbose=config.verbose))
 
     @tool
@@ -381,9 +438,17 @@ def create_server(config: Config) -> MCPServer:
             limit=limit,
         )
 
+    log_event(
+        f"startup: tools registered ({len(registered)}): {', '.join(registered)}",
+        verbose=verbose,
+    )
+    log_event("startup: server initialized", verbose=verbose)
     return mcp
 
 
 def run(config: Config) -> None:
     """Run the MCP server over stdio."""
-    create_server(config).run()
+    mcp = create_server(config)
+    log_event("startup: starting stdio transport", verbose=config.verbose)
+    mcp.run()
+    log_event("startup: stdio transport closed", verbose=config.verbose)

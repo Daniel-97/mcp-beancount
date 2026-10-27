@@ -71,7 +71,7 @@ Flag principali:
 - `--allow-edit-outside-inbox` — consente modifiche fuori dall'inbox;
 - `--query-limit` — limite predefinito per `query` (1–1000);
 - `--transport stdio` — trasporto MCP;
-- `--verbose` — logga le chiamate dei tool su stderr (stdout resta riservato al protocollo MCP).
+- `--verbose` — logga su stderr le fasi di avvio e le chiamate dei tool (stdout resta riservato al protocollo MCP).
 
 Esempio:
 

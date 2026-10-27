@@ -134,3 +134,52 @@ def testCreateServer_shouldLogToolCalls_whenVerbose(
     assert "[beancount-mcp] -> ledger_info" in captured.err
     assert "[beancount-mcp] <- ledger_info ok=True" in captured.err
     assert "[beancount-mcp]" not in captured.out
+
+
+def testCreateServer_shouldLogStartupPhases_whenVerbose(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("", encoding="utf-8")
+
+    # When
+    create_server(build_config(str(ledger), verbose=True))
+
+    # Then
+    captured = capsys.readouterr()
+    assert "startup: creating MCP server" in captured.err
+    assert "startup: no pending transaction" in captured.err
+    assert "startup: loading ledger for diagnostics" in captured.err
+    assert "startup: ledger loaded:" in captured.err
+    assert "startup: tools registered" in captured.err
+    assert "startup: server initialized" in captured.err
+    assert "[beancount-mcp]" not in captured.out
+
+
+def testRun_shouldLogTransportLifecycle_whenVerbose(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("", encoding="utf-8")
+    config = build_config(str(ledger), verbose=True)
+
+    class FakeServer:
+        def run(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "beancount_mcp.server.create_server",
+        lambda current: FakeServer(),
+    )
+
+    # When
+    import beancount_mcp.server as server_module
+
+    server_module.run(config)
+
+    # Then
+    captured = capsys.readouterr()
+    assert "startup: starting stdio transport" in captured.err
+    assert "startup: stdio transport closed" in captured.err

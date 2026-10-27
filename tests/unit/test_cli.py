@@ -262,3 +262,21 @@ def testMainServer_shouldPassVerboseConfig_whenVerboseFlagIsPresent(
     # Then
     assert exit_code == 0
     assert configs[0].verbose is True
+
+
+def testMainServer_shouldLogConfig_whenVerbose(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    monkeypatch.setattr(server, "run", lambda config: None)
+
+    # When
+    exit_code = cli.main([str(ledger), "--verbose"])
+
+    # Then
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "config: ledger=" in captured.err
+    assert "startup: launching MCP server" in captured.err
