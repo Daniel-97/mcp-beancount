@@ -163,7 +163,7 @@ def testRun_shouldLogTransportLifecycle_whenVerbose(
     # Given
     ledger = tmp_path / "main.bean"
     ledger.write_text("", encoding="utf-8")
-    config = build_config(str(ledger), verbose=True)
+    config = build_config(str(ledger), transport="stdio", verbose=True)
 
     class FakeServer:
         def run(self) -> None:
@@ -189,7 +189,11 @@ def testRun_shouldHandleKeyboardInterrupt_whenServerIsInterrupted(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given
-    config = build_config(str(tmp_path / "main.bean"), verbose=True)
+    config = build_config(
+        str(tmp_path / "main.bean"),
+        transport="stdio",
+        verbose=True,
+    )
 
     class InterruptingServer:
         def run(self) -> None:
@@ -215,13 +219,13 @@ def testRun_shouldHandleKeyboardInterrupt_whenServerIsInterrupted(
     assert "Traceback" not in captured.err
 
 
-def testRun_shouldStartStreamableHttp_whenTransportIsHttp(
+def testRun_shouldStartHttp_whenTransportIsHttp(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given
     config = build_config(
         str(tmp_path / "main.bean"),
-        transport="streamable-http",
+        transport="http",
         host="0.0.0.0",
         port=8765,
         http_path="/beancount/mcp",
@@ -273,5 +277,6 @@ def testRun_shouldStartStreamableHttp_whenTransportIsHttp(
             "json_response": True,
         }
     ]
+    assert "startup: starting http transport" in captured.err
     assert "http://0.0.0.0:8765/beancount/mcp" in captured.err
     assert "shutdown: server stopped" in captured.err

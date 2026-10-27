@@ -282,7 +282,7 @@ def testMainServer_shouldLogConfig_whenVerbose(
     assert "startup: launching MCP server" in captured.err
 
 
-def testMainServer_shouldPassStreamableHttpTransport_whenRequested(
+def testMainServer_shouldDefaultToHttpTransport_whenTransportIsNotSpecified(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given
@@ -292,11 +292,43 @@ def testMainServer_shouldPassStreamableHttpTransport_whenRequested(
     monkeypatch.setattr(server, "run", configs.append)
 
     # When
-    exit_code = cli.main([str(ledger), "--transport", "streamable-http"])
+    exit_code = cli.main([str(ledger)])
 
     # Then
     assert exit_code == 0
-    assert configs[0].transport == "streamable-http"
+    assert configs[0].transport == "http"
+
+
+def testMainServer_shouldPassHttpTransport_whenRequested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main([str(ledger), "--transport", "http"])
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].transport == "http"
+
+
+def testMainServer_shouldRejectLegacyTransportName_whenRequested(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+
+    # When
+    with pytest.raises(SystemExit) as raised:
+        cli.main([str(ledger), "--transport", "streamable-http"])
+
+    # Then
+    assert raised.value.code == 2
 
 
 def testMainServer_shouldPassHttpSettings_whenProvided(
@@ -313,7 +345,7 @@ def testMainServer_shouldPassHttpSettings_whenProvided(
         [
             str(ledger),
             "--transport",
-            "streamable-http",
+            "http",
             "--host",
             "0.0.0.0",
             "--port",
@@ -339,7 +371,7 @@ def testMainServer_shouldRejectHttpSettings_whenTransportIsStdio(
 
     # When
     with pytest.raises(SystemExit) as raised:
-        cli.main([str(ledger), "--port", "8765"])
+        cli.main([str(ledger), "--transport", "stdio", "--port", "8765"])
 
     # Then
     assert raised.value.code == 2
@@ -374,7 +406,7 @@ def testMainServer_shouldWarn_whenHttpHostIsNotLoopback(
         [
             str(ledger),
             "--transport",
-            "streamable-http",
+            "http",
             "--host",
             "0.0.0.0",
         ]

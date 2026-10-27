@@ -459,14 +459,14 @@ def create_server(
 
 def run(config: Config) -> None:
     """Run the MCP server over the configured transport."""
-    if config.transport == "streamable-http":
+    if config.transport == "http":
         started = False
         try:
             mcp = create_server(config)
             started = True
             display_host = f"[{config.host}]" if ":" in config.host else config.host
             log_event(
-                "startup: starting streamable-http transport on "
+                "startup: starting http transport on "
                 f"http://{display_host}:{config.port}{config.http_path} "
                 "(stateless, JSON responses)",
                 verbose=config.verbose,

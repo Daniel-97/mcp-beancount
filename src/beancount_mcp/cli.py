@@ -13,6 +13,7 @@ from beancount_mcp.config import (
     DEFAULT_INBOX,
     DEFAULT_PORT,
     DEFAULT_QUERY_LIMIT,
+    DEFAULT_TRANSPORT,
     build_config,
     resolve_ledger_path,
 )
@@ -95,26 +96,26 @@ def _run_server(argv: Sequence[str]) -> int:
     )
     parser.add_argument(
         "--transport",
-        choices=["stdio", "streamable-http"],
-        default="stdio",
-        help="MCP transport (default: stdio). streamable-http listens on "
-        "the configured host/port/path in stateless mode.",
+        choices=["http", "stdio"],
+        default=DEFAULT_TRANSPORT,
+        help="MCP transport (default: http). http listens on the configured "
+        "host/port/path in stateless mode.",
     )
     parser.add_argument(
         "--host",
         default=DEFAULT_HOST,
-        help=f"Bind host for streamable-http (default: {DEFAULT_HOST}).",
+        help=f"Bind host for the HTTP transport (default: {DEFAULT_HOST}).",
     )
     parser.add_argument(
         "--port",
         type=int,
         default=DEFAULT_PORT,
-        help=f"Bind port for streamable-http (default: {DEFAULT_PORT}).",
+        help=f"Bind port for the HTTP transport (default: {DEFAULT_PORT}).",
     )
     parser.add_argument(
         "--http-path",
         default=DEFAULT_HTTP_PATH,
-        help=f"HTTP endpoint path for streamable-http (default: {DEFAULT_HTTP_PATH}).",
+        help=f"HTTP endpoint path (default: {DEFAULT_HTTP_PATH}).",
     )
     parser.add_argument(
         "--version",
@@ -154,7 +155,7 @@ def _run_server(argv: Sequence[str]) -> int:
         f"verbose={config.verbose}",
         verbose=config.verbose,
     )
-    if config.transport == "streamable-http" and config.host not in (
+    if config.transport == "http" and config.host not in (
         "127.0.0.1",
         "::1",
         "localhost",

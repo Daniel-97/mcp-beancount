@@ -61,14 +61,15 @@ o non è inclusa, `ledger_info` mostra un avviso e i tool di scrittura rispondon
 uv run beancount-mcp /percorso/main.bean
 ```
 
-Il trasporto predefinito è `stdio`. Il server termina con un messaggio esplicativo
-se il ledger non esiste. Con `stdio`, `Ctrl-C`/SIGINT e SIGTERM chiudono il server
-in modo pulito con exit code `0`: se il segnale arriva durante un tool call, il
-server attende che l'operazione corrente finisca prima di uscire; un secondo
-segnale forza l'uscita. SIGSTOP non è intercettabile e sospende subito il
-processo; se viene poi ucciso, il journal/recovery ripristina lo stato al
-successivo avvio writable. SIGKILL non è gestibile. Con HTTP lo shutdown è
-gestito da uvicorn.
+Il trasporto predefinito è `http`: il server ascolta su
+`http://127.0.0.1:8000/mcp`. Per usare stdio, specifica `--transport stdio`.
+Il server termina con un messaggio esplicativo se il ledger non esiste. Con
+`stdio`, `Ctrl-C`/SIGINT e SIGTERM chiudono il server in modo pulito con exit
+code `0`: se il segnale arriva durante un tool call, il server attende che
+l'operazione corrente finisca prima di uscire; un secondo segnale forza
+l'uscita. SIGSTOP non è intercettabile e sospende subito il processo; se viene
+poi ucciso, il journal/recovery ripristina lo stato al successivo avvio
+writable. SIGKILL non è gestibile. Con HTTP lo shutdown è gestito da uvicorn.
 
 Flag principali:
 
@@ -76,7 +77,7 @@ Flag principali:
 - `--read-only` — disabilita i tool di scrittura;
 - `--allow-edit-outside-inbox` — consente modifiche fuori dall'inbox;
 - `--query-limit` — limite predefinito per `query` (1–1000);
-- `--transport stdio|streamable-http` — trasporto MCP;
+- `--transport http|stdio` — trasporto MCP (default `http`);
 - `--host` — host di ascolto HTTP (default `127.0.0.1`);
 - `--port` — porta HTTP (default `8000`);
 - `--http-path` — percorso HTTP (default `/mcp`);
@@ -94,14 +95,14 @@ uv run beancount-mcp /percorso/main.bean --read-only --inbox inbox.bean
 La modalità più semplice è Streamable HTTP stateless:
 
 ```bash
-uv run beancount-mcp --transport streamable-http /percorso/main.bean
+uv run beancount-mcp /percorso/main.bean
 ```
 
 Il server ascolta su `http://127.0.0.1:8000/mcp`. Host, porta e percorso sono
 configurabili:
 
 ```bash
-uv run beancount-mcp --transport streamable-http \
+uv run beancount-mcp \
   --host 127.0.0.1 --port 8765 --http-path /beancount/mcp \
   /percorso/main.bean
 ```

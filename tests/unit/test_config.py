@@ -164,7 +164,7 @@ def testBuildConfig_shouldValidateQueryLimit_whenLimitIsOutsideRange(
     assert "--query-limit" in str(raised.value)
 
 
-def testBuildConfig_shouldRejectUnsupportedTransport_whenTransportIsNotStdio(
+def testBuildConfig_shouldRejectUnsupportedTransport_whenTransportIsUnknown(
     tmp_path: Path,
 ) -> None:
     # Given
@@ -172,10 +172,10 @@ def testBuildConfig_shouldRejectUnsupportedTransport_whenTransportIsNotStdio(
 
     # When
     with pytest.raises(ValueError, match="Trasporto non supportato") as raised:
-        build_config(str(ledger), transport="http")
+        build_config(str(ledger), transport="sse")
 
     # Then
-    assert "http" in str(raised.value)
+    assert "sse" in str(raised.value)
 
 
 def testBuildConfig_shouldResolveLedgerSymlink_whenLedgerIsSymlink(
@@ -232,15 +232,40 @@ def testBuildConfig_shouldStoreVerbose_whenEnabled(tmp_path: Path) -> None:
     assert config.verbose is True
 
 
-def testBuildConfig_shouldAcceptStreamableHttpTransport(tmp_path: Path) -> None:
+def testBuildConfig_shouldDefaultToHttpTransport(tmp_path: Path) -> None:
     # Given
     ledger = tmp_path / "main.bean"
 
     # When
-    config = build_config(str(ledger), transport="streamable-http")
+    config = build_config(str(ledger))
 
     # Then
-    assert config.transport == "streamable-http"
+    assert config.transport == "http"
+
+
+def testBuildConfig_shouldAcceptHttpTransport(tmp_path: Path) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    config = build_config(str(ledger), transport="http")
+
+    # Then
+    assert config.transport == "http"
+
+
+def testBuildConfig_shouldRejectStreamableHttpTransport_whenLegacyNameIsUsed(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    with pytest.raises(ValueError, match="Trasporto non supportato"):
+        build_config(str(ledger), transport="streamable-http")
+
+    # Then
+    # no alias is accepted
 
 
 def testBuildConfig_shouldStoreHttpSettings_whenTransportIsHttp(tmp_path: Path) -> None:
@@ -250,7 +275,7 @@ def testBuildConfig_shouldStoreHttpSettings_whenTransportIsHttp(tmp_path: Path) 
     # When
     config = build_config(
         str(ledger),
-        transport="streamable-http",
+        transport="http",
         host="0.0.0.0",
         port=8765,
         http_path="/beancount/mcp",
@@ -271,7 +296,7 @@ def testBuildConfig_shouldRejectPort_whenOutsideRange(tmp_path: Path, port: int)
     with pytest.raises(ValueError, match="--port") as raised:
         build_config(
             str(ledger),
-            transport="streamable-http",
+            transport="http",
             port=port,
         )
 
@@ -289,7 +314,7 @@ def testBuildConfig_shouldRejectHttpPath_whenMissingLeadingSlash(
     with pytest.raises(ValueError, match="--http-path") as raised:
         build_config(
             str(ledger),
-            transport="streamable-http",
+            transport="http",
             http_path="mcp",
         )
 
@@ -305,7 +330,7 @@ def testBuildConfig_shouldRejectHttpSettings_whenTransportIsStdio(
 
     # When
     with pytest.raises(ValueError, match="richiedono --transport") as raised:
-        build_config(str(ledger), port=8765)
+        build_config(str(ledger), transport="stdio", port=8765)
 
     # Then
-    assert "streamable-http" in str(raised.value)
+    assert "http" in str(raised.value)

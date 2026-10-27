@@ -14,7 +14,8 @@ MAX_QUERY_LIMIT = 1000
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 DEFAULT_HTTP_PATH = "/mcp"
-TRANSPORTS = ("stdio", "streamable-http")
+DEFAULT_TRANSPORT = "http"
+TRANSPORTS = ("http", "stdio")
 ENV_LEDGER = "BEANCOUNT_MCP_LEDGER"
 
 
@@ -27,7 +28,7 @@ class Config:
     read_only: bool = False
     allow_edit_outside_inbox: bool = False
     query_limit: int = DEFAULT_QUERY_LIMIT
-    transport: str = "stdio"
+    transport: str = DEFAULT_TRANSPORT
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
     http_path: str = DEFAULT_HTTP_PATH
@@ -61,7 +62,7 @@ def build_config(
     read_only: bool = False,
     allow_edit_outside_inbox: bool = False,
     query_limit: int = DEFAULT_QUERY_LIMIT,
-    transport: str = "stdio",
+    transport: str = DEFAULT_TRANSPORT,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     http_path: str = DEFAULT_HTTP_PATH,
@@ -84,7 +85,7 @@ def build_config(
     if transport == "stdio" and (
         host != DEFAULT_HOST or port != DEFAULT_PORT or http_path != DEFAULT_HTTP_PATH
     ):
-        raise ValueError("--host, --port e --http-path richiedono --transport streamable-http")
+        raise ValueError("--host, --port e --http-path richiedono --transport http")
 
     ledger_path = Path(os.path.realpath(resolve_ledger_path(ledger, env)))
     return Config(
