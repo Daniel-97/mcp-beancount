@@ -13,6 +13,7 @@ Il progetto è in sviluppo: sono disponibili il comando `init` e il tool
 ```bash
 uv sync
 uv run pytest
+uv run pytest --cov=beancount_mcp --cov-report=term-missing
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src tests

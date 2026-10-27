@@ -13,7 +13,7 @@
 - `tags` richiede tutti i tag indicati.
 - Risultati dal più recente; default `limit=50`, massimo 500.
 - Ogni risultato contiene `entry_id` compatibile con `edit_transaction`/`delete_transaction`.
-- Test automatici rimandati alla fase finale.
+- Test automatici aggiunti nella fase finale (suite completa: 243 test).
 
 ## Task
 

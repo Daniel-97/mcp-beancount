@@ -180,8 +180,13 @@ Convenzioni obbligatorie per i test:
 - corpo strutturato con i commenti `# Given`, `# When`, `# Then`;
 - asserzioni su comportamento e side effect reali, non sull'esistenza di mock.
 
-Stato attuale: 99 test, tutti relativi a M0/M1. I test di M2–M6 sono la fase
-successiva e precedono il merge del branch di implementazione.
+Stato attuale: 243 test. Copertura complessiva 93%; i moduli richiesti dalla
+specifica sono sopra il 90%: `ledger` 100%, `entries` 100%, `validation` 100%,
+`writer` 95%, `queries` 98%. La copertura si misura con:
+
+```bash
+uv run pytest --cov=beancount_mcp --cov-report=term-missing
+```
 
 Pubblicazione su PyPI e CI restano da fare: richiedono rispettivamente
 credenziali del maintainer e la configurazione CI rimossa su richiesta.
