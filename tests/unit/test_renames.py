@@ -11,6 +11,11 @@ from beancount_mcp.renames import (
     _rewrite_account_line,
     _rewrite_token_line,
 )
+from beancount_mcp.tools.rename import (
+    _normalize_account_issue,
+    _normalize_token_issue,
+)
+from beancount_mcp.validation import Issue
 
 
 def testRewriteAccountLine_shouldReplaceDirectiveAccount_whenExactMatch() -> None:
@@ -206,3 +211,52 @@ def testNormalizeTag_shouldRaise_whenInvalid() -> None:
 
     # Then
     assert "non valido" in str(raised.value)
+
+
+def testNormalizeAccountIssue_shouldNotRewriteSubaccount_whenExactRename() -> None:
+    # Given
+    issue = Issue(
+        type="ValidationError",
+        message="unknown account 'Expenses:Food:Sub'",
+    )
+
+    # When
+    result = _normalize_account_issue(
+        issue,
+        "Expenses:Food",
+        "Expenses:Groceries",
+        False,
+    )
+
+    # Then
+    assert result.message == "unknown account 'Expenses:Food:Sub'"
+
+
+def testNormalizeAccountIssue_shouldRewriteSubaccount_whenIncludeSubaccounts() -> None:
+    # Given
+    issue = Issue(
+        type="ValidationError",
+        message="unknown account 'Expenses:Food:Sub'",
+    )
+
+    # When
+    result = _normalize_account_issue(
+        issue,
+        "Expenses:Food",
+        "Expenses:Groceries",
+        True,
+    )
+
+    # Then
+    assert result.message == "unknown account 'Expenses:Groceries:Sub'"
+
+
+def testNormalizeTokenIssue_shouldRewriteTag_whenPresent() -> None:
+    # Given
+    issue = Issue(type="ValidationError", message="tag #food is invalid")
+
+    # When
+    result = _normalize_token_issue(issue, "#", "food", "meals")
+
+    # Then
+    assert result.message == "tag #meals is invalid"

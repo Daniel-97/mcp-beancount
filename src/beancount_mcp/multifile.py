@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -68,15 +69,18 @@ def commit_files(
             )
 
         journal = {"version": 2, "files": entries}
-        _write_fsync(
+        _write_atomic_fsync(
             directory / "journal.json",
             json.dumps(journal, ensure_ascii=False, indent=2),
             mode=0o600,
         )
         _fsync_dir(directory)
 
+        new_hashes = {str(path): _sha256(content) for path, content in modifications.items()}
         for path, content in modifications.items():
             atomic_write(path, content)
+            if _sha256(_read_text(path)) != new_hashes[str(path)]:
+                raise TransactionError(f"Verifica della scrittura fallita per {path}.")
 
         _write_fsync(directory / _COMMITTED_MARKER, "committed\n", mode=0o600)
         _fsync_dir(directory)
@@ -170,6 +174,30 @@ def _write_fsync(path: Path, content: str, *, mode: int = 0o600) -> None:
         handle.write(content)
         handle.flush()
         os.fsync(handle.fileno())
+
+
+def _write_atomic_fsync(path: Path, content: str, *, mode: int = 0o600) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(
+            descriptor,
+            "w",
+            encoding="utf-8",
+            newline="",
+        ) as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary_path, mode)
+        os.replace(temporary_path, path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def _fsync_dir(path: Path) -> None:

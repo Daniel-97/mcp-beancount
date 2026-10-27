@@ -713,3 +713,67 @@ def testCreateServer_shouldStartReadOnly_whenJournalIsCommitted(
     assert server.name == "beancount-mcp"
     assert ledger.inbox.read_text(encoding="utf-8") == modified
     assert directory.exists()
+
+
+def testRenameAccount_shouldReturnNoOp_whenNamesAreEqualAndAccountExists(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food EUR\n",
+    )
+    service = _service(ledger)
+
+    # When
+    result = rename_account(service, "Expenses:Food", "Expenses:Food")
+
+    # Then
+    assert result["ok"] is True
+    assert result["change_count"] == 0
+    assert result["files_changed"] == 0
+
+
+def testRenameAccount_shouldReturnEntryNotFound_whenNamesAreEqualAndAccountMissing(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n",
+    )
+    service = _service(ledger)
+
+    # When
+    result = rename_account(service, "Expenses:Missing", "Expenses:Missing")
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "ENTRY_NOT_FOUND"
+
+
+def testRenameAccount_shouldNotNormalizeSubaccountError_whenExactRename(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food EUR\n"
+        '2026-01-02 * "Shop" "Unopened sub"\n'
+        "  Expenses:Food:Sub   10.00 EUR\n"
+        "  Assets:Cash        -10.00 EUR\n",
+    )
+    service = _service(ledger, allow_edit_outside_inbox=True)
+
+    # When
+    result = rename_account(service, "Expenses:Food", "Expenses:Groceries")
+
+    # Then
+    assert result["ok"] is True
+    assert "Expenses:Food:Sub" in ledger.main.read_text(encoding="utf-8")
+    assert build_validation(service)["error_count"] == 1

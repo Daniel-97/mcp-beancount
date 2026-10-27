@@ -104,7 +104,15 @@ def plan_account_rename(
             "Scegli un nuovo nome che non sia dentro il vecchio account.",
         )
     existing_accounts = getters.get_accounts(list(snapshot.entries))
-    if old_account != new_account and new_account in existing_accounts:
+    if old_account == new_account:
+        if old_account in existing_accounts:
+            return RenamePlan(changes=(), modifications={})
+        raise RenameError(
+            "ENTRY_NOT_FOUND",
+            f"Nessuna occorrenza dell'account {old_account}.",
+            "Controlla il nome dell'account e riprova.",
+        )
+    if new_account in existing_accounts:
         raise RenameError(
             "ACCOUNT_EXISTS",
             f"L'account {new_account} esiste già.",

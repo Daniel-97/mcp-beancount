@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from beancount_mcp.multifile import (
     recover_pending_transaction,
     transaction_dir,
 )
+from beancount_mcp.writer import atomic_write as original_atomic_write
 
 
 def _sha(value: str) -> str:
@@ -284,4 +286,66 @@ def testCommitFiles_shouldCleanCommittedDirectory_whenPresent(tmp_path: Path) ->
 
     # Then
     assert target.read_text(encoding="utf-8") == "newer a\n"
+    assert not directory.exists()
+
+
+def testCommitFiles_shouldRollback_whenWrittenHashDoesNotMatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("main\n")
+    target = tmp_path / "a.bean"
+    target.write_text("old a\n")
+    calls = 0
+
+    def corrupt_once(path: Path, content: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            original_atomic_write(path, "corrupt\n")
+        else:
+            original_atomic_write(path, content)
+
+    monkeypatch.setattr("beancount_mcp.multifile.atomic_write", corrupt_once)
+
+    # When
+    with pytest.raises(TransactionError, match="annullata"):
+        commit_files(ledger, {target: "new a\n"})
+
+    # Then
+    assert target.read_text(encoding="utf-8") == "old a\n"
+    assert not transaction_dir(ledger).exists()
+
+
+def testCommitFiles_shouldLeaveCommittedJournal_whenCleanupFails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("main\n")
+    target = tmp_path / "a.bean"
+    target.write_text("old a\n")
+    real_rmtree = shutil.rmtree
+    calls = 0
+
+    def fail_cleanup(path: Path, ignore_errors: bool = False) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return
+        real_rmtree(path, ignore_errors=ignore_errors)
+
+    monkeypatch.setattr(shutil, "rmtree", fail_cleanup)
+
+    # When
+    commit_files(ledger, {target: "new a\n"})
+
+    # Then
+    directory = transaction_dir(ledger)
+    assert target.read_text(encoding="utf-8") == "new a\n"
+    assert directory.exists()
+    assert (directory / "committed").exists()
+    assert recover_pending_transaction(ledger) is True
+    assert target.read_text(encoding="utf-8") == "new a\n"
     assert not directory.exists()

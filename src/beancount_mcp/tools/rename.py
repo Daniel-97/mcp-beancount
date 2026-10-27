@@ -303,7 +303,8 @@ def _normalize_account_issue(
     old = old_account.strip()
     new = new_account.strip()
     suffix = r"(?::[A-Za-z0-9-]+)*" if include_subaccounts else ""
-    pattern = re.compile(rf"(?<![A-Za-z0-9:-]){re.escape(old)}{suffix}(?![A-Za-z0-9-])")
+    lookahead = r"(?![A-Za-z0-9-])" if include_subaccounts else r"(?![A-Za-z0-9:-])"
+    pattern = re.compile(rf"(?<![A-Za-z0-9:-]){re.escape(old)}{suffix}{lookahead}")
     message = pattern.sub(
         lambda match: new + match.group(0)[len(old) :],
         issue.message,
