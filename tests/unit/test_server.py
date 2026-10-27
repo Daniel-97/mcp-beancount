@@ -171,7 +171,7 @@ def testRun_shouldLogTransportLifecycle_whenVerbose(
 
     monkeypatch.setattr(
         "beancount_mcp.server.create_server",
-        lambda current: FakeServer(),
+        lambda current, controller: FakeServer(),
     )
 
     # When
@@ -195,9 +195,12 @@ def testRun_shouldHandleKeyboardInterrupt_whenServerIsInterrupted(
         def run(self) -> None:
             raise KeyboardInterrupt
 
+    def create(current: object, controller: object) -> InterruptingServer:
+        return InterruptingServer()
+
     monkeypatch.setattr(
         "beancount_mcp.server.create_server",
-        lambda current: InterruptingServer(),
+        create,
     )
 
     # When

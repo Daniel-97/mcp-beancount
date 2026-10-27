@@ -62,9 +62,12 @@ uv run beancount-mcp /percorso/main.bean
 ```
 
 Il trasporto predefinito è `stdio`. Il server termina con un messaggio esplicativo
-se il ledger non esiste. `Ctrl-C`/SIGINT chiude il server in modo pulito con
-exit code `0`; eventuali transazioni multi-file interrotte vengono recuperate al
-successivo avvio.
+se il ledger non esiste. `Ctrl-C`/SIGINT e SIGTERM chiudono il server in modo
+pulito con exit code `0`: se il segnale arriva durante un tool call, il server
+attende che l'operazione corrente finisca prima di uscire; un secondo segnale
+forza l'uscita. SIGSTOP non è intercettabile e sospende subito il processo; se
+viene poi ucciso, il journal/recovery ripristina lo stato al successivo avvio
+writable. SIGKILL non è gestibile.
 
 Flag principali:
 

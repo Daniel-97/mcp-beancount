@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
+import signal
 import sys
 import time
 from collections.abc import Callable
@@ -25,6 +27,7 @@ from beancount_mcp.multifile import (
     recover_pending_transaction,
     transaction_dir,
 )
+from beancount_mcp.shutdown import GracefulShutdownMiddleware, ShutdownController
 from beancount_mcp.tools.add_transactions import add_transactions as add_transactions_tool
 from beancount_mcp.tools.find_transactions import (
     DEFAULT_FIND_LIMIT,
@@ -160,12 +163,20 @@ def _log_ledger_diagnostics(service: LedgerService) -> None:
         log_event(f"startup: warning: {snapshot.inbox.warning}", verbose=True)
 
 
-def create_server(config: Config) -> MCPServer:
+def create_server(
+    config: Config,
+    shutdown_controller: ShutdownController | None = None,
+) -> MCPServer:
     """Create the MCP server with the ledger tools registered."""
     verbose = config.verbose
     log_event("startup: creating MCP server", verbose=verbose)
     _recover_on_startup(config)
-    mcp = MCPServer("beancount-mcp", version=__version__)
+    middleware = (
+        [GracefulShutdownMiddleware(shutdown_controller)]
+        if shutdown_controller is not None
+        else None
+    )
+    mcp = MCPServer("beancount-mcp", version=__version__, middleware=middleware)
     service = LedgerService(config)
     log_event(
         "startup: ledger service initialized (requests reload from disk)",
@@ -447,19 +458,40 @@ def create_server(config: Config) -> MCPServer:
 
 
 def run(config: Config) -> None:
-    """Run the MCP server over stdio and shut down cleanly on SIGINT."""
+    """Run the MCP server over stdio and shut down cleanly on SIGINT/SIGTERM."""
+    controller = ShutdownController(verbose=config.verbose)
+    previous_handlers: dict[signal.Signals, Any] = {}
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(OSError, ValueError):
+            previous_handlers[signum] = signal.signal(
+                signum,
+                controller.handle_signal,
+            )
+
     started = False
     try:
-        mcp = create_server(config)
+        # Defer shutdown while startup recovery and initialization run.
+        controller.active_calls = 1
+        try:
+            mcp = create_server(config, controller)
+        finally:
+            controller.active_calls = 0
+        if controller.shutdown_requested:
+            controller.shutdown_requested = False
+            raise KeyboardInterrupt(controller.last_signal)
+
         started = True
         log_event("startup: starting stdio transport", verbose=config.verbose)
         mcp.run()
     except KeyboardInterrupt:
         log_event(
-            "shutdown: SIGINT received; stopping server",
+            f"shutdown: {controller.last_signal} received; stopping server",
             verbose=config.verbose,
         )
     finally:
+        for signum, previous in previous_handlers.items():
+            with contextlib.suppress(OSError, ValueError):
+                signal.signal(signum, previous)
         log_event(
             "shutdown: server stopped" if started else "shutdown: startup aborted",
             verbose=config.verbose,
