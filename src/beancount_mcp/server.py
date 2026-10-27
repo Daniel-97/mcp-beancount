@@ -466,10 +466,14 @@ def run(config: Config) -> None:
             started = True
             log_event(
                 "startup: starting streamable-http transport on "
-                "http://127.0.0.1:8000/mcp (stateless)",
+                "http://127.0.0.1:8000/mcp (stateless, JSON responses)",
                 verbose=config.verbose,
             )
-            mcp.run(transport="streamable-http", stateless_http=True)
+            mcp.run(
+                transport="streamable-http",
+                stateless_http=True,
+                json_response=True,
+            )
         except KeyboardInterrupt:
             log_event(
                 "shutdown: SIGINT received; stopping server",

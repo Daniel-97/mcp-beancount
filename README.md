@@ -95,8 +95,11 @@ uv run beancount-mcp --transport streamable-http /percorso/main.bean
 
 Il server ascolta su `http://127.0.0.1:8000/mcp`. Supporta il protocollo
 2026-07-28 e, grazie a `stateless_http=True`, anche i client legacy in modalità
-stateless. Non ci sono sessioni né autenticazione: è pensato per l'uso locale;
-non esporlo su una rete senza un reverse proxy con autenticazione.
+stateless. Le risposte sono JSON (`json_response=True`): ogni richiesta riceve
+una singola risposta `application/json`, senza stream SSE. I tool non usano
+progress, sampling o richieste server-to-client, quindi non si perde
+funzionalità. Non ci sono sessioni né autenticazione: è pensato per l'uso
+locale; non esporlo su una rete senza un reverse proxy con autenticazione.
 
 ## Tool disponibili
 

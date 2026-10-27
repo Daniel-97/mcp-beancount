@@ -227,11 +227,18 @@ def testRun_shouldStartStreamableHttp_whenTransportIsHttp(
     calls: list[dict[str, object]] = []
 
     class FakeHttpServer:
-        def run(self, *, transport: str, stateless_http: bool) -> None:
+        def run(
+            self,
+            *,
+            transport: str,
+            stateless_http: bool,
+            json_response: bool,
+        ) -> None:
             calls.append(
                 {
                     "transport": transport,
                     "stateless_http": stateless_http,
+                    "json_response": json_response,
                 }
             )
 
@@ -247,6 +254,12 @@ def testRun_shouldStartStreamableHttp_whenTransportIsHttp(
 
     # Then
     captured = capsys.readouterr()
-    assert calls == [{"transport": "streamable-http", "stateless_http": True}]
+    assert calls == [
+        {
+            "transport": "streamable-http",
+            "stateless_http": True,
+            "json_response": True,
+        }
+    ]
     assert "startup: starting streamable-http transport" in captured.err
     assert "shutdown: server stopped" in captured.err
