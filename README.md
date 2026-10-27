@@ -77,6 +77,10 @@ Flag principali:
 - `--allow-edit-outside-inbox` — consente modifiche fuori dall'inbox;
 - `--query-limit` — limite predefinito per `query` (1–1000);
 - `--transport stdio|streamable-http` — trasporto MCP;
+- `--host` — host di ascolto HTTP (default `127.0.0.1`);
+- `--port` — porta HTTP (default `8000`);
+- `--http-path` — percorso HTTP (default `/mcp`);
+- `--version` — stampa la versione ed esce;
 - `--verbose` — logga su stderr configurazione, fasi di avvio, tool registrati, chiamate dei tool e shutdown (stdout resta riservato al protocollo MCP).
 
 Esempio:
@@ -93,13 +97,27 @@ La modalità più semplice è Streamable HTTP stateless:
 uv run beancount-mcp --transport streamable-http /percorso/main.bean
 ```
 
-Il server ascolta su `http://127.0.0.1:8000/mcp`. Supporta il protocollo
-2026-07-28 e, grazie a `stateless_http=True`, anche i client legacy in modalità
-stateless. Le risposte sono JSON (`json_response=True`): ogni richiesta riceve
-una singola risposta `application/json`, senza stream SSE. I tool non usano
-progress, sampling o richieste server-to-client, quindi non si perde
-funzionalità. Non ci sono sessioni né autenticazione: è pensato per l'uso
-locale; non esporlo su una rete senza un reverse proxy con autenticazione.
+Il server ascolta su `http://127.0.0.1:8000/mcp`. Host, porta e percorso sono
+configurabili:
+
+```bash
+uv run beancount-mcp --transport streamable-http \
+  --host 127.0.0.1 --port 8765 --http-path /beancount/mcp \
+  /percorso/main.bean
+```
+
+Supporta il protocollo 2026-07-28 e, grazie a `stateless_http=True`, anche i
+client legacy in modalità stateless. Le risposte sono JSON
+(`json_response=True`): ogni richiesta riceve una singola risposta
+`application/json`, senza stream SSE. I tool non usano progress, sampling o
+richieste server-to-client, quindi non si perde funzionalità. Non ci sono
+sessioni né autenticazione: è pensato per l'uso locale; non esporlo su una rete
+senza un reverse proxy con autenticazione. Con un host diverso da localhost il
+server stampa un avviso.
+
+La porta `8000` è anche il default del provider vLLM di OpenCode, che periodicamente
+interroga `/health`: se vuoi evitare quei `404` nei log, usa `--port 8765` e
+aggiorna l'URL nella configurazione del client.
 
 ## Tool disponibili
 

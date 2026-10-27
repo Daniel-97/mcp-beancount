@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from beancount_mcp import cli, server
+from beancount_mcp import __version__, cli, server
 from beancount_mcp.config import Config
 
 
@@ -297,3 +297,90 @@ def testMainServer_shouldPassStreamableHttpTransport_whenRequested(
     # Then
     assert exit_code == 0
     assert configs[0].transport == "streamable-http"
+
+
+def testMainServer_shouldPassHttpSettings_whenProvided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main(
+        [
+            str(ledger),
+            "--transport",
+            "streamable-http",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8765",
+            "--http-path",
+            "/beancount/mcp",
+        ]
+    )
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].host == "0.0.0.0"
+    assert configs[0].port == 8765
+    assert configs[0].http_path == "/beancount/mcp"
+
+
+def testMainServer_shouldRejectHttpSettings_whenTransportIsStdio(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+
+    # When
+    with pytest.raises(SystemExit) as raised:
+        cli.main([str(ledger), "--port", "8765"])
+
+    # Then
+    assert raised.value.code == 2
+
+
+def testMainServer_shouldPrintVersion_whenRequested(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Given
+    arguments = ["--version"]
+
+    # When
+    with pytest.raises(SystemExit) as raised:
+        cli.main(arguments)
+
+    # Then
+    captured = capsys.readouterr()
+    assert raised.value.code == 0
+    assert f"beancount-mcp {__version__}" in captured.out
+
+
+def testMainServer_shouldWarn_whenHttpHostIsNotLoopback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    monkeypatch.setattr(server, "run", lambda config: None)
+
+    # When
+    exit_code = cli.main(
+        [
+            str(ledger),
+            "--transport",
+            "streamable-http",
+            "--host",
+            "0.0.0.0",
+        ]
+    )
+
+    # Then
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "non ha autenticazione" in captured.err

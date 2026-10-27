@@ -11,6 +11,9 @@ DEFAULT_LEDGER_PATH = Path("~/.beancount-mcp/ledger/main.bean")
 DEFAULT_INBOX = "inbox.bean"
 DEFAULT_QUERY_LIMIT = 100
 MAX_QUERY_LIMIT = 1000
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8000
+DEFAULT_HTTP_PATH = "/mcp"
 TRANSPORTS = ("stdio", "streamable-http")
 ENV_LEDGER = "BEANCOUNT_MCP_LEDGER"
 
@@ -25,6 +28,9 @@ class Config:
     allow_edit_outside_inbox: bool = False
     query_limit: int = DEFAULT_QUERY_LIMIT
     transport: str = "stdio"
+    host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
+    http_path: str = DEFAULT_HTTP_PATH
     verbose: bool = False
 
 
@@ -56,6 +62,9 @@ def build_config(
     allow_edit_outside_inbox: bool = False,
     query_limit: int = DEFAULT_QUERY_LIMIT,
     transport: str = "stdio",
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    http_path: str = DEFAULT_HTTP_PATH,
     verbose: bool = False,
     env: Mapping[str, str] | None = None,
 ) -> Config:
@@ -64,6 +73,18 @@ def build_config(
         raise ValueError(f"--query-limit deve essere tra 1 e {MAX_QUERY_LIMIT}")
     if transport not in TRANSPORTS:
         raise ValueError(f"Trasporto non supportato: {transport!r}")
+    host = host.strip()
+    http_path = http_path.strip()
+    if not host:
+        raise ValueError("--host non può essere vuoto")
+    if not 1 <= port <= 65535:
+        raise ValueError("--port deve essere tra 1 e 65535")
+    if not http_path.startswith("/"):
+        raise ValueError("--http-path deve iniziare con '/'")
+    if transport == "stdio" and (
+        host != DEFAULT_HOST or port != DEFAULT_PORT or http_path != DEFAULT_HTTP_PATH
+    ):
+        raise ValueError("--host, --port e --http-path richiedono --transport streamable-http")
 
     ledger_path = Path(os.path.realpath(resolve_ledger_path(ledger, env)))
     return Config(
@@ -73,5 +94,8 @@ def build_config(
         allow_edit_outside_inbox=allow_edit_outside_inbox,
         query_limit=query_limit,
         transport=transport,
+        host=host,
+        port=port,
+        http_path=http_path,
         verbose=verbose,
     )

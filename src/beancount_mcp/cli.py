@@ -6,9 +6,12 @@ import argparse
 import sys
 from collections.abc import Sequence
 
-from beancount_mcp import server
+from beancount_mcp import __version__, server
 from beancount_mcp.config import (
+    DEFAULT_HOST,
+    DEFAULT_HTTP_PATH,
     DEFAULT_INBOX,
+    DEFAULT_PORT,
     DEFAULT_QUERY_LIMIT,
     build_config,
     resolve_ledger_path,
@@ -95,7 +98,28 @@ def _run_server(argv: Sequence[str]) -> int:
         choices=["stdio", "streamable-http"],
         default="stdio",
         help="MCP transport (default: stdio). streamable-http listens on "
-        "127.0.0.1:8000/mcp in stateless mode.",
+        "the configured host/port/path in stateless mode.",
+    )
+    parser.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        help=f"Bind host for streamable-http (default: {DEFAULT_HOST}).",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Bind port for streamable-http (default: {DEFAULT_PORT}).",
+    )
+    parser.add_argument(
+        "--http-path",
+        default=DEFAULT_HTTP_PATH,
+        help=f"HTTP endpoint path for streamable-http (default: {DEFAULT_HTTP_PATH}).",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "--verbose",
@@ -112,6 +136,9 @@ def _run_server(argv: Sequence[str]) -> int:
             allow_edit_outside_inbox=args.allow_edit_outside_inbox,
             query_limit=args.query_limit,
             transport=args.transport,
+            host=args.host,
+            port=args.port,
+            http_path=args.http_path,
             verbose=args.verbose,
         )
     except ValueError as exc:
@@ -123,9 +150,20 @@ def _run_server(argv: Sequence[str]) -> int:
         f"read_only={config.read_only} "
         f"allow_edit_outside_inbox={config.allow_edit_outside_inbox} "
         f"query_limit={config.query_limit} transport={config.transport} "
+        f"host={config.host} port={config.port} http_path={config.http_path} "
         f"verbose={config.verbose}",
         verbose=config.verbose,
     )
+    if config.transport == "streamable-http" and config.host not in (
+        "127.0.0.1",
+        "::1",
+        "localhost",
+    ):
+        print(
+            "Attenzione: il server HTTP non ha autenticazione; non esporlo "
+            "in rete senza un reverse proxy con autenticazione e TLS.",
+            file=sys.stderr,
+        )
 
     if not config.ledger_path.is_file():
         log_event(

@@ -222,6 +222,9 @@ def testRun_shouldStartStreamableHttp_whenTransportIsHttp(
     config = build_config(
         str(tmp_path / "main.bean"),
         transport="streamable-http",
+        host="0.0.0.0",
+        port=8765,
+        http_path="/beancount/mcp",
         verbose=True,
     )
     calls: list[dict[str, object]] = []
@@ -231,12 +234,18 @@ def testRun_shouldStartStreamableHttp_whenTransportIsHttp(
             self,
             *,
             transport: str,
+            host: str,
+            port: int,
+            streamable_http_path: str,
             stateless_http: bool,
             json_response: bool,
         ) -> None:
             calls.append(
                 {
                     "transport": transport,
+                    "host": host,
+                    "port": port,
+                    "streamable_http_path": streamable_http_path,
                     "stateless_http": stateless_http,
                     "json_response": json_response,
                 }
@@ -257,9 +266,12 @@ def testRun_shouldStartStreamableHttp_whenTransportIsHttp(
     assert calls == [
         {
             "transport": "streamable-http",
+            "host": "0.0.0.0",
+            "port": 8765,
+            "streamable_http_path": "/beancount/mcp",
             "stateless_http": True,
             "json_response": True,
         }
     ]
-    assert "startup: starting streamable-http transport" in captured.err
+    assert "http://0.0.0.0:8765/beancount/mcp" in captured.err
     assert "shutdown: server stopped" in captured.err

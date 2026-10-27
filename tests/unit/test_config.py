@@ -241,3 +241,71 @@ def testBuildConfig_shouldAcceptStreamableHttpTransport(tmp_path: Path) -> None:
 
     # Then
     assert config.transport == "streamable-http"
+
+
+def testBuildConfig_shouldStoreHttpSettings_whenTransportIsHttp(tmp_path: Path) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    config = build_config(
+        str(ledger),
+        transport="streamable-http",
+        host="0.0.0.0",
+        port=8765,
+        http_path="/beancount/mcp",
+    )
+
+    # Then
+    assert config.host == "0.0.0.0"
+    assert config.port == 8765
+    assert config.http_path == "/beancount/mcp"
+
+
+@pytest.mark.parametrize("port", [0, 65536])
+def testBuildConfig_shouldRejectPort_whenOutsideRange(tmp_path: Path, port: int) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    with pytest.raises(ValueError, match="--port") as raised:
+        build_config(
+            str(ledger),
+            transport="streamable-http",
+            port=port,
+        )
+
+    # Then
+    assert "65535" in str(raised.value)
+
+
+def testBuildConfig_shouldRejectHttpPath_whenMissingLeadingSlash(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    with pytest.raises(ValueError, match="--http-path") as raised:
+        build_config(
+            str(ledger),
+            transport="streamable-http",
+            http_path="mcp",
+        )
+
+    # Then
+    assert "iniziare con '/'" in str(raised.value)
+
+
+def testBuildConfig_shouldRejectHttpSettings_whenTransportIsStdio(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    with pytest.raises(ValueError, match="richiedono --transport") as raised:
+        build_config(str(ledger), port=8765)
+
+    # Then
+    assert "streamable-http" in str(raised.value)

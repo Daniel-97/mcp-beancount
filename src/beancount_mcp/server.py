@@ -464,13 +464,18 @@ def run(config: Config) -> None:
         try:
             mcp = create_server(config)
             started = True
+            display_host = f"[{config.host}]" if ":" in config.host else config.host
             log_event(
                 "startup: starting streamable-http transport on "
-                "http://127.0.0.1:8000/mcp (stateless, JSON responses)",
+                f"http://{display_host}:{config.port}{config.http_path} "
+                "(stateless, JSON responses)",
                 verbose=config.verbose,
             )
             mcp.run(
                 transport="streamable-http",
+                host=config.host,
+                port=config.port,
+                streamable_http_path=config.http_path,
                 stateless_http=True,
                 json_response=True,
             )

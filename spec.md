@@ -238,7 +238,15 @@ Opzioni da riga di comando e variabili d'ambiente:
 - `--read-only`: disabilita tutti i tool di scrittura.
 - `--allow-edit-outside-inbox`: consente a `edit_transaction` e `delete_transaction` di agire anche su file diversi dall'inbox, purché inclusi dal ledger e dentro la directory del file principale. Disattivato di default.
 - `--query-limit`: limite predefinito di righe per `query`.
-- `--transport`: `stdio` (default).
+- `--transport`: `stdio` (default) o `streamable-http`.
+- `--host`: host di ascolto HTTP (default `127.0.0.1`).
+- `--port`: porta HTTP (default `8000`).
+- `--http-path`: percorso HTTP (default `/mcp`).
+- `--version`: stampa la versione ed esce.
+
+`--host`, `--port` e `--http-path` sono validi solo con
+`--transport streamable-http`. Il server HTTP usa il protocollo 2026-07-28 in
+modalità stateless e restituisce risposte JSON.
 
 ### 9.1 Comando `init`
 
