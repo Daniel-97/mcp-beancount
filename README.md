@@ -62,12 +62,13 @@ uv run beancount-mcp /percorso/main.bean
 ```
 
 Il trasporto predefinito è `stdio`. Il server termina con un messaggio esplicativo
-se il ledger non esiste. `Ctrl-C`/SIGINT e SIGTERM chiudono il server in modo
-pulito con exit code `0`: se il segnale arriva durante un tool call, il server
-attende che l'operazione corrente finisca prima di uscire; un secondo segnale
-forza l'uscita. SIGSTOP non è intercettabile e sospende subito il processo; se
-viene poi ucciso, il journal/recovery ripristina lo stato al successivo avvio
-writable. SIGKILL non è gestibile.
+se il ledger non esiste. Con `stdio`, `Ctrl-C`/SIGINT e SIGTERM chiudono il server
+in modo pulito con exit code `0`: se il segnale arriva durante un tool call, il
+server attende che l'operazione corrente finisca prima di uscire; un secondo
+segnale forza l'uscita. SIGSTOP non è intercettabile e sospende subito il
+processo; se viene poi ucciso, il journal/recovery ripristina lo stato al
+successivo avvio writable. SIGKILL non è gestibile. Con HTTP lo shutdown è
+gestito da uvicorn.
 
 Flag principali:
 
@@ -75,7 +76,7 @@ Flag principali:
 - `--read-only` — disabilita i tool di scrittura;
 - `--allow-edit-outside-inbox` — consente modifiche fuori dall'inbox;
 - `--query-limit` — limite predefinito per `query` (1–1000);
-- `--transport stdio` — trasporto MCP;
+- `--transport stdio|streamable-http` — trasporto MCP;
 - `--verbose` — logga su stderr configurazione, fasi di avvio, tool registrati, chiamate dei tool e shutdown (stdout resta riservato al protocollo MCP).
 
 Esempio:
@@ -83,6 +84,19 @@ Esempio:
 ```bash
 uv run beancount-mcp /percorso/main.bean --read-only --inbox inbox.bean
 ```
+
+## Server HTTP
+
+La modalità più semplice è Streamable HTTP stateless:
+
+```bash
+uv run beancount-mcp --transport streamable-http /percorso/main.bean
+```
+
+Il server ascolta su `http://127.0.0.1:8000/mcp`. Supporta il protocollo
+2026-07-28 e, grazie a `stateless_http=True`, anche i client legacy in modalità
+stateless. Non ci sono sessioni né autenticazione: è pensato per l'uso locale;
+non esporlo su una rete senza un reverse proxy con autenticazione.
 
 ## Tool disponibili
 

@@ -280,3 +280,20 @@ def testMainServer_shouldLogConfig_whenVerbose(
     assert exit_code == 0
     assert "config: ledger=" in captured.err
     assert "startup: launching MCP server" in captured.err
+
+
+def testMainServer_shouldPassStreamableHttpTransport_whenRequested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main([str(ledger), "--transport", "streamable-http"])
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].transport == "streamable-http"

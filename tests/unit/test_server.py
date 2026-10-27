@@ -213,3 +213,40 @@ def testRun_shouldHandleKeyboardInterrupt_whenServerIsInterrupted(
     assert "shutdown: SIGINT received; stopping server" in captured.err
     assert "shutdown: server stopped" in captured.err
     assert "Traceback" not in captured.err
+
+
+def testRun_shouldStartStreamableHttp_whenTransportIsHttp(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    config = build_config(
+        str(tmp_path / "main.bean"),
+        transport="streamable-http",
+        verbose=True,
+    )
+    calls: list[dict[str, object]] = []
+
+    class FakeHttpServer:
+        def run(self, *, transport: str, stateless_http: bool) -> None:
+            calls.append(
+                {
+                    "transport": transport,
+                    "stateless_http": stateless_http,
+                }
+            )
+
+    monkeypatch.setattr(
+        "beancount_mcp.server.create_server",
+        lambda current: FakeHttpServer(),
+    )
+
+    # When
+    import beancount_mcp.server as server_module
+
+    server_module.run(config)
+
+    # Then
+    captured = capsys.readouterr()
+    assert calls == [{"transport": "streamable-http", "stateless_http": True}]
+    assert "startup: starting streamable-http transport" in captured.err
+    assert "shutdown: server stopped" in captured.err

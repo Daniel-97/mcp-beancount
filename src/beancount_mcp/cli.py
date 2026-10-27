@@ -92,9 +92,10 @@ def _run_server(argv: Sequence[str]) -> int:
     )
     parser.add_argument(
         "--transport",
-        choices=["stdio"],
+        choices=["stdio", "streamable-http"],
         default="stdio",
-        help="MCP transport (default: stdio).",
+        help="MCP transport (default: stdio). streamable-http listens on "
+        "127.0.0.1:8000/mcp in stateless mode.",
     )
     parser.add_argument(
         "--verbose",

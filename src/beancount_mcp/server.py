@@ -458,7 +458,30 @@ def create_server(
 
 
 def run(config: Config) -> None:
-    """Run the MCP server over stdio and shut down cleanly on SIGINT/SIGTERM."""
+    """Run the MCP server over the configured transport."""
+    if config.transport == "streamable-http":
+        started = False
+        try:
+            mcp = create_server(config)
+            started = True
+            log_event(
+                "startup: starting streamable-http transport on "
+                "http://127.0.0.1:8000/mcp (stateless)",
+                verbose=config.verbose,
+            )
+            mcp.run(transport="streamable-http", stateless_http=True)
+        except KeyboardInterrupt:
+            log_event(
+                "shutdown: SIGINT received; stopping server",
+                verbose=config.verbose,
+            )
+        finally:
+            log_event(
+                "shutdown: server stopped" if started else "shutdown: startup aborted",
+                verbose=config.verbose,
+            )
+        return
+
     controller = ShutdownController(verbose=config.verbose)
     previous_handlers: dict[signal.Signals, Any] = {}
     for signum in (signal.SIGINT, signal.SIGTERM):

@@ -230,3 +230,14 @@ def testBuildConfig_shouldStoreVerbose_whenEnabled(tmp_path: Path) -> None:
 
     # Then
     assert config.verbose is True
+
+
+def testBuildConfig_shouldAcceptStreamableHttpTransport(tmp_path: Path) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    config = build_config(str(ledger), transport="streamable-http")
+
+    # Then
+    assert config.transport == "streamable-http"

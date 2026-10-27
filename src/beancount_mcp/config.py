@@ -11,7 +11,7 @@ DEFAULT_LEDGER_PATH = Path("~/.beancount-mcp/ledger/main.bean")
 DEFAULT_INBOX = "inbox.bean"
 DEFAULT_QUERY_LIMIT = 100
 MAX_QUERY_LIMIT = 1000
-TRANSPORTS = ("stdio",)
+TRANSPORTS = ("stdio", "streamable-http")
 ENV_LEDGER = "BEANCOUNT_MCP_LEDGER"
 
 
