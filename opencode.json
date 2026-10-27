@@ -24,6 +24,12 @@
         ],
         "cwd": ".",
         "disabled": true
+      },
+      "beancount-http": {
+        "type": "remote",
+        "url": "http://127.0.0.1:8000/mcp",
+        "oauth": false,
+        "protocol": "2026-07-28"
       }
     }
   }
