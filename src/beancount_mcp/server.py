@@ -16,7 +16,12 @@ from beancount_mcp.entry_service import (
 )
 from beancount_mcp.ledger import LedgerService
 from beancount_mcp.tools.add_transactions import add_transactions as add_transactions_tool
-from beancount_mcp.tools.find_transactions import find_transactions as find_transactions_tool
+from beancount_mcp.tools.find_transactions import (
+    DEFAULT_FIND_LIMIT,
+)
+from beancount_mcp.tools.find_transactions import (
+    find_transactions as find_transactions_tool,
+)
 from beancount_mcp.tools.ledger_info import build_ledger_info
 from beancount_mcp.tools.open_account import open_account as open_account_tool
 from beancount_mcp.tools.query import run_query
@@ -189,7 +194,7 @@ def create_server(config: Config) -> MCPServer:
         min_amount: str | None = None,
         max_amount: str | None = None,
         tags: list[str] | None = None,
-        limit: int = 50,
+        limit: int = DEFAULT_FIND_LIMIT,
     ) -> dict[str, Any]:
         """Find transactions and return their full Beancount text with entry ids.
 

@@ -27,3 +27,20 @@ def error_response(error: ErrorInfo) -> dict[str, Any]:
             "hint": error.hint,
         },
     }
+
+
+def tool_error(
+    code: str,
+    message: str,
+    hint: str,
+    details: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a tool error response."""
+    return error_response(
+        ErrorInfo(
+            code=code,
+            message=message,
+            details=details or [],
+            hint=hint,
+        )
+    )

@@ -236,3 +236,17 @@ def testRunBql_shouldReturnEmptyRows_whenNoRowsMatch(copy_fixture: Any) -> None:
     assert result["rows"] == []
     assert result["total_rows"] == 0
     assert result["truncated"] is False
+
+
+@pytest.mark.parametrize("bql", ["CREATE TABLE foo", "INSERT INTO foo VALUES (1)"])
+def testRunBql_shouldRejectWriteStatements_whenStatementIsDdl(copy_fixture: Any, bql: str) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger.main)
+
+    # When
+    result = run_bql(service, bql)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "QUERY_ERROR"

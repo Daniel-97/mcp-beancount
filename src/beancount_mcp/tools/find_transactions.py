@@ -15,8 +15,8 @@ from beancount_mcp.entries import (
     entry_id_to_dict,
     extract_directive_spans,
 )
+from beancount_mcp.errors import tool_error
 from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService
-from beancount_mcp.write_service import tool_error
 
 DEFAULT_FIND_LIMIT = 50
 MAX_FIND_LIMIT = 500
@@ -242,10 +242,17 @@ def _parse_amount(
     if value is None:
         return None
     try:
-        return Decimal(value.strip())
+        parsed = Decimal(value.strip())
     except InvalidOperation:
         return tool_error(
             "VALIDATION_FAILED",
             f"{name} non valido: {value!r}.",
             "Usa un numero decimale senza valuta, ad esempio 10.00.",
         )
+    if not parsed.is_finite() or parsed < 0:
+        return tool_error(
+            "VALIDATION_FAILED",
+            f"{name} deve essere un numero finito e non negativo.",
+            "Usa un numero decimale non negativo, ad esempio 10.00.",
+        )
+    return parsed

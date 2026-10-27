@@ -180,7 +180,7 @@ Convenzioni obbligatorie per i test:
 - corpo strutturato con i commenti `# Given`, `# When`, `# Then`;
 - asserzioni su comportamento e side effect reali, non sull'esistenza di mock.
 
-Stato attuale: 243 test. Copertura complessiva 93%; i moduli richiesti dalla
+Stato attuale: 271 test. Copertura complessiva 93%; i moduli richiesti dalla
 specifica sono sopra il 90%: `ledger` 100%, `entries` 100%, `validation` 100%,
 `writer` 95%, `queries` 98%. La copertura si misura con:
 

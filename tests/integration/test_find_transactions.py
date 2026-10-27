@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from beancount_mcp.config import build_config
 from beancount_mcp.entry_service import edit_transaction
 from beancount_mcp.ledger import LedgerService
@@ -306,3 +308,19 @@ def testFindTransactions_shouldReturnLedgerError_whenLedgerIsMissing(
     # Then
     assert result["ok"] is False
     assert result["error"]["code"] == "LEDGER_ERROR"
+
+
+@pytest.mark.parametrize("amount", ["NaN", "sNaN", "Infinity", "-1.00"])
+def testFindTransactions_shouldReturnValidationFailed_whenAmountIsNotFiniteAndNonNegative(
+    copy_fixture: Any, amount: str
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+
+    # When
+    result = find_transactions(service, min_amount=amount)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"

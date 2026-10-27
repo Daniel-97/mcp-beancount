@@ -12,6 +12,7 @@ from beancount.core.position import Position
 from beanquery import connect
 from beanquery.parser import ast
 
+from beancount_mcp.config import MAX_QUERY_LIMIT
 from beancount_mcp.errors import ErrorInfo, error_response
 from beancount_mcp.ledger import (
     LEDGER_ERROR_HINT,
@@ -19,7 +20,6 @@ from beancount_mcp.ledger import (
     LedgerService,
 )
 
-MAX_LIMIT = 1000
 READ_STATEMENTS = (ast.Select, ast.Balances, ast.Journal)
 QUERY_HINT = (
     "Usa uno statement di lettura tabellare: SELECT, BALANCES o JOURNAL. "
@@ -37,10 +37,10 @@ def run_bql(
 ) -> dict[str, Any]:
     """Execute a read-only BQL statement and return a paginated result."""
     effective_limit = service.config.query_limit if limit is None else limit
-    if not 1 <= effective_limit <= MAX_LIMIT:
+    if not 1 <= effective_limit <= MAX_QUERY_LIMIT:
         return _error(
             "LIMIT_EXCEEDED",
-            f"limit deve essere tra 1 e {MAX_LIMIT} (ricevuto {effective_limit}).",
+            f"limit deve essere tra 1 e {MAX_QUERY_LIMIT} (ricevuto {effective_limit}).",
             LIMIT_HINT,
         )
     if offset < 0:
@@ -103,7 +103,7 @@ def _fetch_page(cursor: Any, limit: int, offset: int) -> list[tuple[Any, ...]]:
     """Skip ``offset`` rows, then fetch at most ``limit + 1`` rows."""
     remaining = offset
     while remaining > 0:
-        batch = cursor.fetchmany(min(remaining, MAX_LIMIT))
+        batch = cursor.fetchmany(min(remaining, MAX_QUERY_LIMIT))
         if not batch:
             break
         remaining -= len(batch)

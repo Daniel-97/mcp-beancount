@@ -22,19 +22,16 @@ from beancount_mcp.entries import (
     is_transaction_span,
     replace_span,
 )
-from beancount_mcp.errors import ErrorInfo, error_response
+from beancount_mcp.errors import ErrorInfo, error_response, tool_error
 from beancount_mcp.ledger import (
     LEDGER_ERROR_HINT,
     LedgerError,
     LedgerService,
     LedgerSnapshot,
 )
-from beancount_mcp.staging import validate_staged_file
+from beancount_mcp.staging import StagingError, validate_staged_file
 from beancount_mcp.validation import Issue, issue_to_dict, issues_from_errors
-from beancount_mcp.write_service import (
-    tool_error,
-    validation_failed_response,
-)
+from beancount_mcp.write_service import validation_failed_response
 from beancount_mcp.writer import (
     LockError,
     atomic_write,
@@ -42,7 +39,7 @@ from beancount_mcp.writer import (
     write_lock,
 )
 
-_FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin)\b")
+_FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin|option)\b")
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +108,7 @@ def parse_entry_id(data: dict[str, Any]) -> EntryIdData | dict[str, Any]:
         or not isinstance(line, int)
         or isinstance(line, bool)
         or line < 1
-        or len(hash_value) != 64
+        or re.fullmatch(r"[0-9a-f]{64}", hash_value) is None
     ):
         return tool_error(
             "ENTRY_NOT_FOUND",
@@ -140,8 +137,8 @@ def resolve_entry(
     real_path = Path(os.path.realpath(path))
     inbox_real = Path(os.path.realpath(config.inbox_path))
 
-    if not config.allow_edit_outside_inbox:
-        if real_path != inbox_real:
+    if real_path != inbox_real:
+        if not config.allow_edit_outside_inbox:
             return tool_error(
                 "ENTRY_NOT_IN_INBOX",
                 "L'entry è fuori dall'inbox e il server non consente modifiche esterne.",
@@ -149,7 +146,6 @@ def resolve_entry(
                 "entry in altri file inclusi.",
                 details=[{"file": str(real_path), "inbox": str(inbox_real)}],
             )
-    else:
         included = {Path(os.path.realpath(file)) for file in snapshot.files}
         if real_path not in included:
             return tool_error(
@@ -221,6 +217,8 @@ def _edit_once(
     snapshot = _load(service)
     if isinstance(snapshot, dict):
         return snapshot
+    if not snapshot.inbox.included:
+        return _inbox_not_included(snapshot)
     resolved = resolve_entry(snapshot, service.config, entry_id)
     if isinstance(resolved, dict):
         return resolved
@@ -229,6 +227,13 @@ def _edit_once(
             "ENTRY_NOT_FOUND",
             "L'entry non contiene una direttiva.",
             "Usa l'entry_id di una direttiva, non di un commento.",
+        )
+    forbidden_target = _forbidden_target(resolved.span)
+    if forbidden_target is not None:
+        return tool_error(
+            "VALIDATION_FAILED",
+            f"L'entry è una direttiva {forbidden_target} e non può essere modificata.",
+            "Le direttive balance e pad non vengono mai modificate dai tool.",
         )
 
     parsed = _parse_new_text(new_text, resolved.path)
@@ -241,6 +246,10 @@ def _edit_once(
             "Sostituisci l'entry con una sola direttiva Beancount.",
         )
 
+    entry_meta = getattr(parsed[0], "meta", None) or {}
+    entry_line = entry_meta.get("lineno", 1)
+    entry_offset = int(entry_line) - 1 if isinstance(entry_line, int) else 0
+
     new_content = replace_span(resolved.text, resolved.span, new_text)
     return _validate_and_write(
         service,
@@ -249,6 +258,7 @@ def _edit_once(
         new_content,
         dry_run=dry_run,
         new_text=new_text,
+        entry_offset=entry_offset,
     )
 
 
@@ -260,6 +270,8 @@ def _delete_once(
     snapshot = _load(service)
     if isinstance(snapshot, dict):
         return snapshot
+    if not snapshot.inbox.included:
+        return _inbox_not_included(snapshot)
     resolved = resolve_entry(
         snapshot,
         service.config,
@@ -288,6 +300,7 @@ def _validate_and_write(
     *,
     dry_run: bool,
     new_text: str | None,
+    entry_offset: int = 0,
 ) -> dict[str, Any]:
     issues = _validate_staged(snapshot, resolved.path, new_content)
     if isinstance(issues, dict):
@@ -295,10 +308,11 @@ def _validate_and_write(
     if issues:
         return validation_failed_response(issues, snapshot)
 
+    new_line = resolved.span.entry_id.line + entry_offset
     new_span = (
         find_span(
             extract_directive_spans(resolved.path, new_content),
-            resolved.span.entry_id.line,
+            new_line,
         )
         if new_text is not None
         else None
@@ -339,11 +353,14 @@ def _validate_and_write(
 
     after = _load(service)
     if isinstance(after, dict):
+        after["error"]["message"] = (
+            f"Scrittura completata ma il ledger non è ricaricabile: {after['error']['message']}"
+        )
         return after
     new_span = (
         find_span(
             extract_directive_spans(resolved.path, new_content),
-            resolved.span.entry_id.line,
+            new_line,
         )
         if new_text is not None
         else None
@@ -370,7 +387,7 @@ def _validate_staged(
             new_content,
             snapshot.errors,
         )
-    except OSError as exc:
+    except (OSError, StagingError) as exc:
         return tool_error(
             "LEDGER_ERROR",
             f"Impossibile validare la modifica: {exc}",
@@ -420,6 +437,23 @@ def _span_has_directive(span: DirectiveSpan) -> bool:
     return bool(entries)
 
 
+def _forbidden_target(span: DirectiveSpan) -> str | None:
+    entries, _, _ = parser.parse_string(span.text)
+    for entry in entries:
+        if isinstance(entry, (Pad, Balance)):
+            return type(entry).__name__
+    return None
+
+
+def _inbox_not_included(snapshot: LedgerSnapshot) -> dict[str, Any]:
+    return tool_error(
+        "INBOX_NOT_INCLUDED",
+        "L'inbox non esiste o non è inclusa dal ledger.",
+        snapshot.inbox.warning or "Crea l'inbox e aggiungi il relativo include al file principale.",
+        details=[{"inbox": str(snapshot.inbox.path)}],
+    )
+
+
 def _run_write(
     service: LedgerService,
     dry_run: bool,
@@ -459,7 +493,7 @@ def _success(
         "ok": True,
         "dry_run": dry_run,
         "file": str(resolved.path),
-        "line": resolved.span.entry_id.line,
+        "line": (new_span.entry_id.line if new_span is not None else resolved.span.entry_id.line),
         "ledger_version": snapshot.version,
         "warning_count": len(snapshot.errors),
     }

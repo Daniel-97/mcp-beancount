@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from beancount_mcp.config import build_config
 from beancount_mcp.entries import entry_id_to_dict, extract_directive_spans
 from beancount_mcp.entry_service import delete_transaction, edit_transaction
@@ -478,3 +480,212 @@ def testEditTransaction_shouldReturnLocked_whenLockExists(copy_fixture: Any) -> 
     assert result["ok"] is False
     assert result["error"]["code"] == "LOCKED"
     lock.unlink()
+
+
+def testEditTransaction_shouldValidateModifiedSymlinkTarget_whenIncludedFileIsSymlink(
+    ledger_factory: Any, tmp_path: Path
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "link.bean"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food\n"
+    )
+    real = ledger.root / "real.bean"
+    real.write_text(
+        '2026-01-02 * "X" "Y"\n  Expenses:Food   1.00 EUR\n  Assets:Cash    -1.00 EUR\n',
+        encoding="utf-8",
+    )
+    (ledger.root / "link.bean").symlink_to(real)
+    service = _service(ledger, allow_edit_outside_inbox=True)
+    entry_id = _entry_id(real, needle="X")
+    before = real.read_bytes()
+    unbalanced = (
+        '2026-01-02 * "X" "Broken"\n  Expenses:Food   1.00 EUR\n  Assets:Cash    -0.50 EUR\n'
+    )
+
+    # When
+    result = edit_transaction(service, entry_id, unbalanced)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+    assert real.read_bytes() == before
+
+
+def testEditTransaction_shouldReturnInboxNotIncluded_whenInboxIsMissing(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("no_inbox")
+    service = _service(ledger)
+    entry_id = _entry_id(ledger.main, needle="Lunch")
+
+    # When
+    result = edit_transaction(service, entry_id, EDITED_TRANSACTION)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "INBOX_NOT_INCLUDED"
+
+
+def testDeleteTransaction_shouldReturnInboxNotIncluded_whenInboxIsMissing(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("no_inbox")
+    service = _service(ledger)
+    entry_id = _entry_id(ledger.main, needle="Lunch")
+
+    # When
+    result = delete_transaction(service, entry_id)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "INBOX_NOT_INCLUDED"
+
+
+def testEditTransaction_shouldRejectBalanceTarget_whenEntryIsBalance(
+    ledger_factory: Any, snapshot_bytes: Any
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n",
+        inbox_text="2026-01-02 balance Assets:Cash 0.00 EUR\n",
+    )
+    service = _service(ledger)
+    entry_id = _entry_id(ledger.inbox, needle="balance")
+    before = snapshot_bytes(ledger.root)
+
+    # When
+    result = edit_transaction(service, entry_id, '2026-01-02 note Assets:Cash "x"\n')
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+    assert snapshot_bytes(ledger.root) == before
+
+
+def testEditTransaction_shouldRejectOptionDirective_whenNewTextContainsIt(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+    assert add_transactions(service, VALID_TRANSACTION)["ok"] is True
+    entry_id = _entry_id(ledger.inbox)
+
+    # When
+    result = edit_transaction(
+        service,
+        entry_id,
+        'option "operating_currency" "USD"\n',
+    )
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+
+
+@pytest.mark.parametrize(
+    "new_text",
+    [
+        'include "other.bean"\n',
+        'plugin "other"\n',
+        "2026-02-01 pad Assets:Cash Equity:Opening-Balances\n",
+        "2026-02-01 balance Assets:Cash 0.00 EUR\n",
+        "\n",
+    ],
+)
+def testEditTransaction_shouldRejectForbiddenOrEmptyText_whenProvided(
+    copy_fixture: Any, new_text: str
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+    assert add_transactions(service, VALID_TRANSACTION)["ok"] is True
+    entry_id = _entry_id(ledger.inbox)
+
+    # When
+    result = edit_transaction(service, entry_id, new_text)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] in {"SYNTAX_ERROR", "VALIDATION_FAILED"}
+
+
+def testEditTransaction_shouldReturnUsableEntryId_whenNewTextHasLeadingComment(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+    assert add_transactions(service, VALID_TRANSACTION)["ok"] is True
+    entry_id = _entry_id(ledger.inbox)
+    new_text = "; leading comment\n" + EDITED_TRANSACTION
+
+    # When
+    result = edit_transaction(service, entry_id, new_text)
+
+    # Then
+    assert result["ok"] is True
+    assert result["entry_id"]["line"] == entry_id["line"] + 1
+    follow_up = edit_transaction(service, result["entry_id"], VALID_TRANSACTION)
+    assert follow_up["ok"] is True
+
+
+def testEditTransaction_shouldAllowInboxOutsideLedgerDir_whenFlagIsOn(
+    ledger_factory: Any, tmp_path: Path
+) -> None:
+    # Given
+    outside = tmp_path / "outside-inbox.bean"
+    outside.write_text(VALID_TRANSACTION, encoding="utf-8")
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "../outside-inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food\n",
+        inbox_text=None,
+    )
+    service = LedgerService(
+        build_config(
+            str(ledger.main),
+            inbox="../outside-inbox.bean",
+            allow_edit_outside_inbox=True,
+        )
+    )
+    entry_id = _entry_id(outside)
+
+    # When
+    result = edit_transaction(service, entry_id, EDITED_TRANSACTION)
+
+    # Then
+    assert result["ok"] is True
+    assert "Tea" in outside.read_text(encoding="utf-8")
+
+
+def testEditTransaction_shouldReturnPathNotAllowed_whenFileIsNotIncluded(
+    tmp_path: Path, ledger_factory: Any
+) -> None:
+    # Given
+    other = tmp_path / "other.bean"
+    other.write_text(VALID_TRANSACTION, encoding="utf-8")
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food\n"
+    )
+    service = _service(ledger, allow_edit_outside_inbox=True)
+    entry_id = _entry_id(other)
+
+    # When
+    result = edit_transaction(service, entry_id, EDITED_TRANSACTION)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "PATH_NOT_ALLOWED"

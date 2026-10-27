@@ -253,3 +253,17 @@ def testOpenAccount_shouldReturnInboxNotIncluded_whenInboxIsMissing(
     # Then
     assert result["ok"] is False
     assert result["error"]["code"] == "INBOX_NOT_INCLUDED"
+
+
+def testOpenAccount_shouldReturnLedgerError_whenLedgerIsMissing(
+    tmp_path: Path,
+) -> None:
+    # Given
+    service = LedgerService(build_config(str(tmp_path / "missing.bean")))
+
+    # When
+    result = open_account(service, "Expenses:Travel", ["EUR"])
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "LEDGER_ERROR"

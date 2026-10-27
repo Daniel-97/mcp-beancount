@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import glob
 import os
 import re
 import tempfile
@@ -19,7 +20,13 @@ from beancount_mcp.validation import (
 )
 
 _INCLUDE_RE = re.compile(r'(?m)^(\s*include\s+")([^"]+)(")')
+_DOCUMENT_RE = re.compile(r'(?m)^(\s*\d{4}-\d{2}-\d{2}\s+document\s+\S+\s+")([^"]+)(")')
+_DOCUMENTS_OPTION_RE = re.compile(r'(?m)^(\s*option\s+"documents"\s+")([^"]+)(")')
 _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[/\\]")
+
+
+class StagingError(Exception):
+    """Raised when the staged tree cannot be built faithfully."""
 
 
 def validate_staged_file(
@@ -53,12 +60,20 @@ def _staged_tree(
     with tempfile.TemporaryDirectory(prefix="beancount-mcp-stage-") as temporary:
         root = Path(temporary)
         path_map: dict[str, Path] = {}
+        modified_real = Path(os.path.realpath(modified_path))
+        applied = False
         for source in files:
+            source_real = Path(os.path.realpath(source))
             staged = _staged_path(root, source)
             staged.parent.mkdir(parents=True, exist_ok=True)
             path_map[str(staged)] = source
-            content = modified_content if source == modified_path else None
-            _stage_file(source, staged, root, content)
+            content = None
+            if source_real == modified_real:
+                content = modified_content
+                applied = True
+            _stage_file(source, staged, root, ledger_path, content)
+        if not applied:
+            raise StagingError(f"Il file modificato non è incluso nel ledger: {modified_path}")
         yield _staged_path(root, ledger_path), path_map
 
 
@@ -66,6 +81,7 @@ def _stage_file(
     source: Path,
     target: Path,
     root: Path,
+    ledger_path: Path,
     content: str | None,
 ) -> None:
     if content is None:
@@ -77,23 +93,46 @@ def _stage_file(
             return
     else:
         text = content
-    target.write_text(
-        _rewrite_absolute_includes(text, root),
-        encoding="utf-8",
-        newline="",
-    )
+    text = _rewrite_absolute_includes(text, root)
+    text = _rewrite_document_paths(text, source, ledger_path)
+    target.write_text(text, encoding="utf-8", newline="")
 
 
 def _rewrite_absolute_includes(text: str, root: Path) -> str:
     def replace(match: re.Match[str]) -> str:
-        pattern = match.group(2)
-        expanded = os.path.abspath(os.path.expanduser(pattern))
-        if not os.path.isabs(os.path.expanduser(pattern)):
+        pattern = os.path.expanduser(match.group(2))
+        if not os.path.isabs(pattern):
+            return match.group(0)
+        expanded = os.path.abspath(pattern)
+        if not glob.glob(expanded, recursive=True):
             return match.group(0)
         staged = _staged_path(root, expanded)
         return f"{match.group(1)}{staged}{match.group(3)}"
 
     return _INCLUDE_RE.sub(replace, text)
+
+
+def _rewrite_document_paths(
+    text: str,
+    source: Path,
+    ledger_path: Path,
+) -> str:
+    def replace_document(match: re.Match[str]) -> str:
+        value = os.path.expanduser(match.group(2))
+        if os.path.isabs(value):
+            return match.group(0)
+        absolute = os.path.abspath(os.path.join(source.parent, value))
+        return f"{match.group(1)}{absolute}{match.group(3)}"
+
+    def replace_documents_option(match: re.Match[str]) -> str:
+        value = os.path.expanduser(match.group(2))
+        if os.path.isabs(value):
+            return match.group(0)
+        absolute = os.path.abspath(os.path.join(ledger_path.parent, value))
+        return f"{match.group(1)}{absolute}{match.group(3)}"
+
+    text = _DOCUMENT_RE.sub(replace_document, text)
+    return _DOCUMENTS_OPTION_RE.sub(replace_documents_option, text)
 
 
 def _staged_path(root: Path, path: str | Path) -> Path:

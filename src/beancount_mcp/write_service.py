@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from difflib import get_close_matches
 from pathlib import Path
@@ -11,14 +12,14 @@ from beancount.core.data import Balance, Directive, Pad
 from beancount.parser import parser, printer
 
 from beancount_mcp.accounts import account_infos
-from beancount_mcp.errors import ErrorInfo, error_response
+from beancount_mcp.errors import tool_error
 from beancount_mcp.ledger import (
     LEDGER_ERROR_HINT,
     LedgerError,
     LedgerService,
     LedgerSnapshot,
 )
-from beancount_mcp.staging import validate_staged_file
+from beancount_mcp.staging import StagingError, validate_staged_file
 from beancount_mcp.validation import Issue, issue_to_dict, issues_from_errors
 from beancount_mcp.writer import (
     LockError,
@@ -28,7 +29,7 @@ from beancount_mcp.writer import (
     write_lock,
 )
 
-_FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin)\b")
+_FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin|option)\b")
 
 
 def write_inbox_text(
@@ -93,6 +94,8 @@ def _write_inbox_text(
             details=[{"inbox": str(snapshot.inbox.path)}],
         )
 
+    inbox_path = Path(os.path.realpath(snapshot.inbox.path))
+
     if expected_ledger_version is not None and expected_ledger_version != snapshot.version:
         return tool_error(
             "VERSION_CONFLICT",
@@ -106,13 +109,13 @@ def _write_inbox_text(
             ],
         )
 
-    parsed = _parse_proposed_text(text, snapshot.inbox.path)
+    parsed = _parse_proposed_text(text, inbox_path)
     if isinstance(parsed, dict):
         return parsed
     entries = parsed
 
     try:
-        existing = snapshot.inbox.path.read_bytes().decode("utf-8")
+        existing = inbox_path.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         return tool_error(
             "LEDGER_ERROR",
@@ -125,11 +128,11 @@ def _write_inbox_text(
         new_issues = validate_staged_file(
             snapshot.ledger_path,
             snapshot.files,
-            snapshot.inbox.path,
+            inbox_path,
             proposed_content,
             snapshot.errors,
         )
-    except OSError as exc:
+    except (OSError, StagingError) as exc:
         return tool_error(
             "LEDGER_ERROR",
             f"Impossibile validare la modifica: {exc}",
@@ -143,7 +146,7 @@ def _write_inbox_text(
         return _success(
             snapshot,
             entries,
-            snapshot.inbox.path,
+            inbox_path,
             dry_run=True,
             would_write_text=text.strip("\n") + "\n",
         )
@@ -167,7 +170,7 @@ def _write_inbox_text(
         )
 
     try:
-        atomic_write(snapshot.inbox.path, proposed_content)
+        atomic_write(inbox_path, proposed_content)
     except OSError as exc:
         return tool_error(
             "LEDGER_ERROR",
@@ -184,7 +187,7 @@ def _write_inbox_text(
             "Controlla il ledger con validate e verifica i file su disco.",
         )
 
-    return _success(after, entries, snapshot.inbox.path, dry_run=False)
+    return _success(after, entries, inbox_path, dry_run=False)
 
 
 def _parse_proposed_text(
@@ -217,6 +220,13 @@ def _parse_proposed_text(
             details=[issue_to_dict(issue) for issue in issues_from_errors(errors)],
         )
 
+    if not entries:
+        return tool_error(
+            "VALIDATION_FAILED",
+            "Il testo non contiene direttive.",
+            "Invia una o più direttive Beancount, ad esempio una transazione.",
+        )
+
     forbidden = [entry for entry in entries if isinstance(entry, (Pad, Balance))]
     if forbidden:
         return tool_error(
@@ -246,13 +256,29 @@ def validation_failed_response(
 
 
 def _validation_hint(issues: list[Issue], snapshot: LedgerSnapshot) -> str:
-    open_accounts = [name for name, info in account_infos(snapshot.entries).items() if info.is_open]
+    infos = account_infos(snapshot.entries)
+    open_accounts = [name for name, info in infos.items() if info.is_open]
     for issue in issues:
         message = issue.message
         if "inactive account" in message or "unknown account" in message:
             match = re.search(r"'([^']+)'", message)
             if match:
                 missing = match.group(1)
+                info = infos.get(missing)
+                if info is not None:
+                    if info.close_date is not None:
+                        return (
+                            f"L'account '{missing}' è stato chiuso il "
+                            f"{info.close_date.isoformat()}. Usa un altro "
+                            "account o una data precedente alla chiusura."
+                        )
+                    if info.open_date is not None:
+                        opened = info.open_date.isoformat()
+                        return (
+                            f"L'account '{missing}' esiste ma la transazione è "
+                            f"precedente alla sua apertura ({opened}). Usa una "
+                            f"data >= {opened} o un altro account."
+                        )
                 similar = get_close_matches(missing, open_accounts, n=3, cutoff=0.8)
                 if similar:
                     return (
@@ -300,19 +326,3 @@ def _success(
     if dry_run and would_write_text is not None:
         result["would_write_text"] = would_write_text
     return result
-
-
-def tool_error(
-    code: str,
-    message: str,
-    hint: str,
-    details: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    return error_response(
-        ErrorInfo(
-            code=code,
-            message=message,
-            details=details or [],
-            hint=hint,
-        )
-    )

@@ -1,8 +1,9 @@
 # beancount-mcp
 
 Server MCP per interrogare e modificare in sicurezza un ledger Beancount.
-Il progetto è in sviluppo: sono disponibili il comando `init` e il tool
-`ledger_info`.
+Sono disponibili il comando `init` e i tool `ledger_info`, `query`, `validate`,
+`find_transactions`, `add_transactions`, `open_account`, `edit_transaction` e
+`delete_transaction`.
 
 ## Requisiti
 
@@ -37,6 +38,22 @@ uv run beancount-mcp init --currency EUR
 ```
 
 `init` non sovrascrive mai file non vuoti.
+
+## Collegare l'inbox a un ledger esistente
+
+Il server non modifica mai il file principale di un ledger esistente. Per
+abilitare le scritture:
+
+1. crea un file `inbox.bean` vuoto accanto al file principale;
+2. aggiungi al file principale la riga:
+
+```beancount
+include "inbox.bean"
+```
+
+Se usi un percorso diverso, passa `--inbox` al server. Finché l'inbox non esiste
+o non è inclusa, `ledger_info` mostra un avviso e i tool di scrittura rispondono
+`INBOX_NOT_INCLUDED`.
 
 ## Avviare il server
 
@@ -86,7 +103,8 @@ SELECT date, payee, narration, position WHERE account = 'Expenses:Food' ORDER BY
 ```
 
 La risposta contiene `columns`, `rows`, `limit`, `offset`, `truncated` e
-`total_rows`. Gli importi sono stringhe.
+`total_rows`. Gli importi sono stringhe. Per includere file e riga delle entry,
+seleziona `filename, lineno` nella query.
 
 ### `validate`
 

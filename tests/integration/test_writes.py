@@ -331,3 +331,171 @@ def testAddTransactions_shouldReturnLedgerError_whenLedgerIsMissing(
     # Then
     assert result["ok"] is False
     assert result["error"]["code"] == "LEDGER_ERROR"
+
+
+def testAddTransactions_shouldPreserveInboxSymlink_whenLedgerIncludesSymlink(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    real_inbox = ledger.root / "real-inbox.bean"
+    real_inbox.write_text("", encoding="utf-8")
+    ledger.inbox.unlink()
+    ledger.inbox.symlink_to(real_inbox)
+    service = _service(ledger)
+
+    # When
+    result = add_transactions(service, VALID_TRANSACTION)
+
+    # Then
+    assert result["ok"] is True
+    assert ledger.inbox.is_symlink() is True
+    assert "Coffee" in real_inbox.read_text(encoding="utf-8")
+    assert service.load().entries
+
+
+def testAddTransactions_shouldWriteRealInbox_whenConfiguredInboxIsSymlink(
+    ledger_factory: Any, tmp_path: Path
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "real-inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food\n",
+        inbox_text=None,
+    )
+    real_inbox = ledger.root / "real-inbox.bean"
+    real_inbox.write_text("", encoding="utf-8")
+    link = ledger.root / "link-inbox.bean"
+    link.symlink_to(real_inbox)
+    service = LedgerService(build_config(str(ledger.main), inbox="link-inbox.bean"))
+
+    # When
+    result = add_transactions(service, VALID_TRANSACTION)
+
+    # Then
+    assert result["ok"] is True
+    assert link.is_symlink() is True
+    assert "Coffee" in real_inbox.read_text(encoding="utf-8")
+
+
+def testAddTransactions_shouldValidate_whenLedgerHasRelativeDocument(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food\n"
+        '2026-01-02 document Assets:Cash "receipt.pdf"\n'
+    )
+    (ledger.root / "receipt.pdf").write_text("receipt\n", encoding="utf-8")
+    service = _service(ledger)
+
+    # When
+    result = add_transactions(service, VALID_TRANSACTION)
+
+    # Then
+    assert result["ok"] is True
+
+
+def testAddTransactions_shouldValidate_whenLedgerHasRelativeDocumentsOption(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'option "documents" "receipts"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food\n"
+    )
+    (ledger.root / "receipts").mkdir()
+    service = _service(ledger)
+
+    # When
+    result = add_transactions(service, VALID_TRANSACTION)
+
+    # Then
+    assert result["ok"] is True
+
+
+def testAddTransactions_shouldSubtractPreexistingMissingAbsoluteInclude_whenValidating(
+    ledger_factory: Any, tmp_path: Path
+) -> None:
+    # Given
+    missing = tmp_path / "absolutely-missing.bean"
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        f'include "{missing}"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food\n"
+    )
+    service = _service(ledger)
+    before_errors = build_validation(service)["error_count"]
+
+    # When
+    result = add_transactions(service, VALID_TRANSACTION)
+
+    # Then
+    assert before_errors == 1
+    assert result["ok"] is True
+    assert build_validation(service)["error_count"] == 1
+
+
+def testAddTransactions_shouldRejectOptionDirective_whenPresent(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+
+    # When
+    result = add_transactions(service, 'option "operating_currency" "USD"\n')
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+
+
+def testAddTransactions_shouldRejectCommentOnly_whenTextHasNoDirectives(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+
+    # When
+    result = add_transactions(service, "; just a comment\n")
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+
+
+def testAddTransactions_shouldExplainOpenDate_whenTransactionPrecedesOpening(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-02 open Assets:Cash EUR\n"
+        "2026-01-02 open Expenses:Food\n"
+    )
+    service = _service(ledger)
+    text = (
+        '2026-01-01 * "Shop" "Too early"\n  Expenses:Food   1.00 EUR\n  Assets:Cash    -1.00 EUR\n'
+    )
+
+    # When
+    result = add_transactions(service, text)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+    assert "2026-01-02" in result["error"]["hint"]
+    assert "open_account" not in result["error"]["hint"]
