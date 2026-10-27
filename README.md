@@ -199,4 +199,5 @@ Per una sessione in sola lettura aggiungi `"--read-only"` agli `args`.
 ## Documentazione
 
 - Specifica: [`spec.md`](spec.md)
-- Decisioni tecniche: [`docs/decisions.md`](docs/decisions.md)
+- Le decisioni tecniche sono mantenute localmente in `docs/decisions.md` e non
+  sono versionate.

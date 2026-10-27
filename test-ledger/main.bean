@@ -1,6 +1,0 @@
-option "title" "Beancount MCP Ledger"
-option "operating_currency" "EUR"
-
-include "inbox.bean"
-
-2026-10-27 open Equity:Opening-Balances
