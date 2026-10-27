@@ -57,6 +57,9 @@ def testCreateServer_shouldExposeAllTools_whenWritable(tmp_path: Path) -> None:
         "open_account",
         "edit_transaction",
         "delete_transaction",
+        "rename_account",
+        "rename_tag",
+        "rename_link",
         "find_transactions",
     ]
 

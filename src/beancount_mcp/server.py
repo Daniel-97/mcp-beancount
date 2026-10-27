@@ -15,6 +15,7 @@ from beancount_mcp.entry_service import (
     edit_transaction as edit_transaction_service,
 )
 from beancount_mcp.ledger import LedgerService
+from beancount_mcp.multifile import recover_pending_transaction
 from beancount_mcp.tools.add_transactions import add_transactions as add_transactions_tool
 from beancount_mcp.tools.find_transactions import (
     DEFAULT_FIND_LIMIT,
@@ -25,11 +26,17 @@ from beancount_mcp.tools.find_transactions import (
 from beancount_mcp.tools.ledger_info import build_ledger_info
 from beancount_mcp.tools.open_account import open_account as open_account_tool
 from beancount_mcp.tools.query import run_query
+from beancount_mcp.tools.rename import (
+    rename_account as rename_account_tool,
+)
+from beancount_mcp.tools.rename import rename_link as rename_link_tool
+from beancount_mcp.tools.rename import rename_tag as rename_tag_tool
 from beancount_mcp.tools.validate import build_validation
 
 
 def create_server(config: Config) -> MCPServer:
     """Create the MCP server with the ledger tools registered."""
+    recover_pending_transaction(config.ledger_path)
     mcp = MCPServer("beancount-mcp", version=__version__)
     service = LedgerService(config)
 
@@ -185,6 +192,72 @@ def create_server(config: Config) -> MCPServer:
             - Use dry_run=true to inspect the transaction that would be removed.
             """
             return delete_transaction_service(service, entry_id, dry_run=dry_run)
+
+        @mcp.tool()
+        def rename_account(
+            account: str,
+            new_account: str,
+            include_subaccounts: bool = False,
+            dry_run: bool = False,
+        ) -> dict[str, Any]:
+            """Rename an account across all included ledger files.
+
+            Rewrites account fields in open/close/balance/pad/note/document
+            directives and transaction postings. With include_subaccounts, also
+            renames Old:* to New:*. By default only the inbox is editable; other
+            included files require --allow-edit-outside-inbox. Use dry_run to
+            inspect every changed line without writing.
+
+            Examples:
+            - rename_account("Expenses:Food", "Expenses:Groceries")
+            - rename_account("Assets:Broker", "Assets:ScalableCapital", include_subaccounts=true)
+            - rename_account("Expenses:Resturant", "Expenses:Restaurant", dry_run=true)
+            """
+            return rename_account_tool(
+                service,
+                account,
+                new_account,
+                include_subaccounts=include_subaccounts,
+                dry_run=dry_run,
+            )
+
+        @mcp.tool()
+        def rename_tag(
+            tag: str,
+            new_tag: str,
+            dry_run: bool = False,
+        ) -> dict[str, Any]:
+            """Rename a tag in transactions and pushtag/poptag directives.
+
+            Tags inside quoted narrations and comments are not modified. The
+            rename is validated and applied across all included files as one
+            journaled operation. By default only the inbox is editable; other
+            included files require --allow-edit-outside-inbox.
+
+            Examples:
+            - rename_tag("food", "meals")
+            - rename_tag("#november", "#2026-11", dry_run=true)
+            """
+            return rename_tag_tool(service, tag, new_tag, dry_run=dry_run)
+
+        @mcp.tool()
+        def rename_link(
+            link: str,
+            new_link: str,
+            dry_run: bool = False,
+        ) -> dict[str, Any]:
+            """Rename a link in transaction headers.
+
+            Links inside quoted narrations and comments are not modified. The
+            rename is validated and applied across all included files as one
+            journaled operation. By default only the inbox is editable; other
+            included files require --allow-edit-outside-inbox.
+
+            Examples:
+            - rename_link("november", "2026-11")
+            - rename_link("^old", "^new", dry_run=true)
+            """
+            return rename_link_tool(service, link, new_link, dry_run=dry_run)
 
     @mcp.tool()
     def find_transactions(

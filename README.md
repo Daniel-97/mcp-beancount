@@ -173,6 +173,40 @@ find_transactions(account="Expenses:Food", min_amount="10.00", max_amount="50.00
 senza valuta. I risultati sono dal più recente e `entry_id` può essere passato a
 `edit_transaction` o `delete_transaction`.
 
+### `rename_account`
+
+Rinomina un account in tutti i file inclusi. Parametri: `account`,
+`new_account`, `include_subaccounts`, `dry_run`.
+
+```text
+rename_account("Expenses:Food", "Expenses:Groceries")
+rename_account("Assets:Broker", "Assets:ScalableCapital", include_subaccounts=true)
+```
+
+Aggiorna i campi account di `open`, `close`, `balance`, `pad`, `note`,
+`document` e le postings delle transazioni. Non tocca narrazioni, commenti o
+valori arbitrari.
+
+### `rename_tag` e `rename_link`
+
+Rinominano rispettivamente tag (`#tag`) e link (`^link`) in tutti i file
+inclusi. I tag vengono aggiornati anche in `pushtag`/`poptag`; tag e link dentro
+stringhe o commenti non vengono modificati.
+
+```text
+rename_tag("food", "meals")
+rename_link("november", "2026-11")
+```
+
+Tutti i rename supportano `dry_run=true` e restituiscono l'elenco delle righe
+che cambierebbero. Il rename multi-file è applicato con una transazione
+journaled: se una scrittura fallisce, i file vengono ripristinati; un journal
+pendente viene recuperato all'avvio del server.
+
+Di default i rename modificano solo l'inbox. Per toccare altri file inclusi
+serve `--allow-edit-outside-inbox`, con gli stessi limiti di path di
+`edit_transaction`.
+
 ## Configurazione di un client MCP
 
 Esempio per un client che supporta la configurazione JSON (adatta i percorsi):
