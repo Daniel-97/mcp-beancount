@@ -40,7 +40,7 @@ def testCreateServer_shouldUsePackageVersion_whenServerIsCreated(
     assert mcp_server.version == expected_version
 
 
-def testCreateServer_shouldExposeReadTools_whenCreated(tmp_path: Path) -> None:
+def testCreateServer_shouldExposeAllTools_whenWritable(tmp_path: Path) -> None:
     # Given
     config = build_config(str(tmp_path / "main.bean"))
     mcp_server = create_server(config)
@@ -57,6 +57,23 @@ def testCreateServer_shouldExposeReadTools_whenCreated(tmp_path: Path) -> None:
         "open_account",
         "edit_transaction",
         "delete_transaction",
+        "find_transactions",
+    ]
+
+
+def testCreateServer_shouldExposeOnlyReadTools_whenReadOnly(tmp_path: Path) -> None:
+    # Given
+    config = build_config(str(tmp_path / "main.bean"), read_only=True)
+    mcp_server = create_server(config)
+
+    # When
+    tools = asyncio.run(mcp_server.list_tools())
+
+    # Then
+    assert [tool.name for tool in tools] == [
+        "ledger_info",
+        "query",
+        "validate",
         "find_transactions",
     ]
 

@@ -84,105 +84,107 @@ def create_server(config: Config) -> MCPServer:
         """
         return build_validation(service)
 
-    @mcp.tool()
-    def add_transactions(
-        text: str,
-        dry_run: bool = False,
-        expected_ledger_version: str | None = None,
-    ) -> dict[str, Any]:
-        """Append one or more Beancount directives to the inbox.
+    if not config.read_only:
 
-        The write is atomic, serialized by a lock, and validated before/after:
-        only new errors block it. Use dry_run to inspect the text without
-        writing. Pass expected_ledger_version from ledger_info to detect
-        concurrent changes. pad and balance directives are rejected.
+        @mcp.tool()
+        def add_transactions(
+            text: str,
+            dry_run: bool = False,
+            expected_ledger_version: str | None = None,
+        ) -> dict[str, Any]:
+            """Append one or more Beancount directives to the inbox.
 
-        Examples:
-        - Add a balanced transaction between two already-open accounts.
-        - Use dry_run=true to check a candidate transaction before writing.
-        - Add several directives in one call; they are appended in order.
-        """
-        return add_transactions_tool(
-            service,
-            text,
-            dry_run=dry_run,
-            expected_ledger_version=expected_ledger_version,
-        )
+            The write is atomic, serialized by a lock, and validated before/after:
+            only new errors block it. Use dry_run to inspect the text without
+            writing. Pass expected_ledger_version from ledger_info to detect
+            concurrent changes. pad and balance directives are rejected.
 
-    @mcp.tool()
-    def open_account(
-        account: str,
-        currencies: list[str] | None = None,
-        date: str | None = None,
-        confirm_new: bool = False,
-        dry_run: bool = False,
-    ) -> dict[str, Any]:
-        """Open a new Beancount account by writing an open directive to the inbox.
+            Examples:
+            - Add a balanced transaction between two already-open accounts.
+            - Use dry_run=true to check a candidate transaction before writing.
+            - Add several directives in one call; they are appended in order.
+            """
+            return add_transactions_tool(
+                service,
+                text,
+                dry_run=dry_run,
+                expected_ledger_version=expected_ledger_version,
+            )
 
-        The account name must be valid and use an allowed root. An existing open
-        account produces ACCOUNT_EXISTS; a similar open account produces
-        ACCOUNT_SIMILAR_EXISTS unless confirm_new is true. Date defaults to
-        today. Use dry_run to validate without writing.
+        @mcp.tool()
+        def open_account(
+            account: str,
+            currencies: list[str] | None = None,
+            date: str | None = None,
+            confirm_new: bool = False,
+            dry_run: bool = False,
+        ) -> dict[str, Any]:
+            """Open a new Beancount account by writing an open directive to the inbox.
 
-        Examples:
-        - open_account("Expenses:Restaurant", ["EUR"])
-        - open_account("Assets:Bank:Checking", date="2026-01-01")
-        - open_account("Expenses:Resturant", confirm_new=true) to override a
-          similar-name warning.
-        """
-        return open_account_tool(
-            service,
-            account,
-            currencies=currencies,
-            date=date,
-            confirm_new=confirm_new,
-            dry_run=dry_run,
-        )
+            The account name must be valid and use an allowed root. An existing open
+            account produces ACCOUNT_EXISTS; a similar open account produces
+            ACCOUNT_SIMILAR_EXISTS unless confirm_new is true. Date defaults to
+            today. Use dry_run to validate without writing.
 
-    @mcp.tool()
-    def edit_transaction(
-        entry_id: dict[str, Any],
-        new_text: str,
-        dry_run: bool = False,
-    ) -> dict[str, Any]:
-        """Replace one ledger directive identified by a stable entry_id.
+            Examples:
+            - open_account("Expenses:Restaurant", ["EUR"])
+            - open_account("Assets:Bank:Checking", date="2026-01-01")
+            - open_account("Expenses:Resturant", confirm_new=true) to override a
+              similar-name warning.
+            """
+            return open_account_tool(
+                service,
+                account,
+                currencies=currencies,
+                date=date,
+                confirm_new=confirm_new,
+                dry_run=dry_run,
+            )
 
-        entry_id is the object returned by find_transactions:
-        {"file": str, "line": int, "hash": str}. By default only inbox entries
-        can be edited; other included files require --allow-edit-outside-inbox.
-        The change is validated before/after and written atomically. If the
-        directive changed since the id was issued, the tool returns
-        ENTRY_CHANGED with the current text.
+        @mcp.tool()
+        def edit_transaction(
+            entry_id: dict[str, Any],
+            new_text: str,
+            dry_run: bool = False,
+        ) -> dict[str, Any]:
+            """Replace one ledger directive identified by a stable entry_id.
 
-        Examples:
-        - Change the narration of an inbox transaction.
-        - Correct a posting amount, keeping the transaction balanced.
-        - Use dry_run=true to preview the replacement.
-        """
-        return edit_transaction_service(
-            service,
-            entry_id,
-            new_text,
-            dry_run=dry_run,
-        )
+            entry_id is the object returned by find_transactions:
+            {"file": str, "line": int, "hash": str}. By default only inbox entries
+            can be edited; other included files require --allow-edit-outside-inbox.
+            The change is validated before/after and written atomically. If the
+            directive changed since the id was issued, the tool returns
+            ENTRY_CHANGED with the current text.
 
-    @mcp.tool()
-    def delete_transaction(
-        entry_id: dict[str, Any],
-        dry_run: bool = False,
-    ) -> dict[str, Any]:
-        """Delete one transaction identified by a stable entry_id.
+            Examples:
+            - Change the narration of an inbox transaction.
+            - Correct a posting amount, keeping the transaction balanced.
+            - Use dry_run=true to preview the replacement.
+            """
+            return edit_transaction_service(
+                service,
+                entry_id,
+                new_text,
+                dry_run=dry_run,
+            )
 
-        Only transactions can be deleted; open, close, balance, and pad are
-        rejected. By default only inbox entries are eligible; other included
-        files require --allow-edit-outside-inbox. The write is atomic and
-        validated before/after.
+        @mcp.tool()
+        def delete_transaction(
+            entry_id: dict[str, Any],
+            dry_run: bool = False,
+        ) -> dict[str, Any]:
+            """Delete one transaction identified by a stable entry_id.
 
-        Examples:
-        - Delete a transaction previously added to the inbox.
-        - Use dry_run=true to inspect the transaction that would be removed.
-        """
-        return delete_transaction_service(service, entry_id, dry_run=dry_run)
+            Only transactions can be deleted; open, close, balance, and pad are
+            rejected. By default only inbox entries are eligible; other included
+            files require --allow-edit-outside-inbox. The write is atomic and
+            validated before/after.
+
+            Examples:
+            - Delete a transaction previously added to the inbox.
+            - Use dry_run=true to inspect the transaction that would be removed.
+            """
+            return delete_transaction_service(service, entry_id, dry_run=dry_run)
 
     @mcp.tool()
     def find_transactions(
