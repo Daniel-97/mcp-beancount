@@ -62,7 +62,9 @@ uv run beancount-mcp /percorso/main.bean
 ```
 
 Il trasporto predefinito è `stdio`. Il server termina con un messaggio esplicativo
-se il ledger non esiste.
+se il ledger non esiste. `Ctrl-C`/SIGINT chiude il server in modo pulito con
+exit code `0`; eventuali transazioni multi-file interrotte vengono recuperate al
+successivo avvio.
 
 Flag principali:
 
@@ -71,7 +73,7 @@ Flag principali:
 - `--allow-edit-outside-inbox` — consente modifiche fuori dall'inbox;
 - `--query-limit` — limite predefinito per `query` (1–1000);
 - `--transport stdio` — trasporto MCP;
-- `--verbose` — logga su stderr le fasi di avvio e le chiamate dei tool (stdout resta riservato al protocollo MCP).
+- `--verbose` — logga su stderr configurazione, fasi di avvio, tool registrati, chiamate dei tool e shutdown (stdout resta riservato al protocollo MCP).
 
 Esempio:
 

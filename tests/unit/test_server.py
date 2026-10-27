@@ -182,4 +182,31 @@ def testRun_shouldLogTransportLifecycle_whenVerbose(
     # Then
     captured = capsys.readouterr()
     assert "startup: starting stdio transport" in captured.err
-    assert "startup: stdio transport closed" in captured.err
+    assert "shutdown: server stopped" in captured.err
+
+
+def testRun_shouldHandleKeyboardInterrupt_whenServerIsInterrupted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    config = build_config(str(tmp_path / "main.bean"), verbose=True)
+
+    class InterruptingServer:
+        def run(self) -> None:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "beancount_mcp.server.create_server",
+        lambda current: InterruptingServer(),
+    )
+
+    # When
+    import beancount_mcp.server as server_module
+
+    server_module.run(config)
+
+    # Then
+    captured = capsys.readouterr()
+    assert "shutdown: SIGINT received; stopping server" in captured.err
+    assert "shutdown: server stopped" in captured.err
+    assert "Traceback" not in captured.err

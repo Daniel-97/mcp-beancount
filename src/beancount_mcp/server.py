@@ -447,8 +447,20 @@ def create_server(config: Config) -> MCPServer:
 
 
 def run(config: Config) -> None:
-    """Run the MCP server over stdio."""
-    mcp = create_server(config)
-    log_event("startup: starting stdio transport", verbose=config.verbose)
-    mcp.run()
-    log_event("startup: stdio transport closed", verbose=config.verbose)
+    """Run the MCP server over stdio and shut down cleanly on SIGINT."""
+    started = False
+    try:
+        mcp = create_server(config)
+        started = True
+        log_event("startup: starting stdio transport", verbose=config.verbose)
+        mcp.run()
+    except KeyboardInterrupt:
+        log_event(
+            "shutdown: SIGINT received; stopping server",
+            verbose=config.verbose,
+        )
+    finally:
+        log_event(
+            "shutdown: server stopped" if started else "shutdown: startup aborted",
+            verbose=config.verbose,
+        )
