@@ -22,6 +22,7 @@ dev = [
   "pytest>=8",
   "ruff>=0.14",
   "mypy>=1.18",
+  "pytest-cov>=7.1.0",
 ]
 
 [tool.hatch.build.targets.wheel]

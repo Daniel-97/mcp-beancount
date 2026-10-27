@@ -1,0 +1,17 @@
+option "title" "Multicurrency"
+option "operating_currency" "EUR"
+include "inbox.bean"
+
+2026-01-01 price USD 1.20 EUR
+
+2026-01-01 open Assets:Broker USD
+2026-01-01 open Assets:Cash EUR
+2026-01-01 open Expenses:Food EUR
+
+2026-01-02 * "Broker" "Buy shares"
+  Assets:Broker   10.00 USD {1.20 EUR}
+  Assets:Cash    -12.00 EUR
+
+2026-01-03 * "Shop" "Lunch"
+  Expenses:Food   10.00 EUR
+  Assets:Cash    -10.00 EUR
