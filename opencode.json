@@ -19,9 +19,11 @@
           "uv",
           "run",
           "beancount-mcp",
+          "--verbose",
           "test-ledger/main.bean"
         ],
-        "cwd": "."
+        "cwd": ".",
+        "disabled": true
       }
     }
   }

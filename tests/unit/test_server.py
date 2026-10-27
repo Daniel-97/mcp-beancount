@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
 
@@ -115,3 +116,21 @@ def testCreateServer_shouldReturnStructuredError_whenLedgerDisappears(
     assert result.structured_content is not None
     assert result.structured_content["ok"] is False
     assert result.structured_content["error"]["code"] == "LEDGER_ERROR"
+
+
+def testCreateServer_shouldLogToolCalls_whenVerbose(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("", encoding="utf-8")
+    mcp_server = create_server(build_config(str(ledger), verbose=True))
+
+    # When
+    asyncio.run(mcp_server.call_tool("ledger_info", {}))
+
+    # Then
+    captured = capsys.readouterr()
+    assert "[beancount-mcp] -> ledger_info" in captured.err
+    assert "[beancount-mcp] <- ledger_info ok=True" in captured.err
+    assert "[beancount-mcp]" not in captured.out

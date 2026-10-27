@@ -245,3 +245,20 @@ def testMainServer_shouldExitCleanly_whenHelpIsRequested() -> None:
 
     # Then
     assert raised.value.code == 0
+
+
+def testMainServer_shouldPassVerboseConfig_whenVerboseFlagIsPresent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.touch()
+    configs: list[Config] = []
+    monkeypatch.setattr(server, "run", configs.append)
+
+    # When
+    exit_code = cli.main([str(ledger), "--verbose"])
+
+    # Then
+    assert exit_code == 0
+    assert configs[0].verbose is True

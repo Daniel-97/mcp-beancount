@@ -95,6 +95,11 @@ def _run_server(argv: Sequence[str]) -> int:
         default="stdio",
         help="MCP transport (default: stdio).",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Log tool calls to stderr (stdout is reserved for MCP).",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -105,6 +110,7 @@ def _run_server(argv: Sequence[str]) -> int:
             allow_edit_outside_inbox=args.allow_edit_outside_inbox,
             query_limit=args.query_limit,
             transport=args.transport,
+            verbose=args.verbose,
         )
     except ValueError as exc:
         parser.error(str(exc))

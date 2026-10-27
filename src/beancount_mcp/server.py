@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+import functools
+import sys
+import time
+from collections.abc import Callable
+from typing import Any, ParamSpec, TypeVar
 
 from mcp.server import MCPServer
 
@@ -38,6 +42,49 @@ from beancount_mcp.tools.rename import rename_tag as rename_tag_tool
 from beancount_mcp.tools.validate import build_validation
 from beancount_mcp.writer import LockError, write_lock
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def _summarize(value: Any, limit: int = 200) -> str:
+    text = repr(value)
+    return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def _logged(func: Callable[P, R], *, verbose: bool) -> Callable[P, R]:
+    if not verbose:
+        return func
+
+    @functools.wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        details = {key: _summarize(value) for key, value in kwargs.items()}
+        started = time.perf_counter()
+        print(
+            f"[beancount-mcp] -> {func.__name__} {details}",
+            file=sys.stderr,
+            flush=True,
+        )
+        try:
+            result = func(*args, **kwargs)
+        except Exception as exc:
+            elapsed = (time.perf_counter() - started) * 1000
+            print(
+                f"[beancount-mcp] !! {func.__name__} {type(exc).__name__}: {exc} ({elapsed:.1f}ms)",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise
+        elapsed = (time.perf_counter() - started) * 1000
+        ok = result.get("ok") if isinstance(result, dict) else None
+        print(
+            f"[beancount-mcp] <- {func.__name__} ok={ok} ({elapsed:.1f}ms)",
+            file=sys.stderr,
+            flush=True,
+        )
+        return result
+
+    return wrapper
+
 
 def _recover_on_startup(config: Config) -> None:
     directory = transaction_dir(config.ledger_path)
@@ -72,7 +119,10 @@ def create_server(config: Config) -> MCPServer:
     mcp = MCPServer("beancount-mcp", version=__version__)
     service = LedgerService(config)
 
-    @mcp.tool()
+    def tool(func: Callable[..., Any]) -> Any:
+        return mcp.tool()(_logged(func, verbose=config.verbose))
+
+    @tool
     def ledger_info() -> dict[str, Any]:
         """Return a compact overview of the Beancount ledger.
 
@@ -89,7 +139,7 @@ def create_server(config: Config) -> MCPServer:
         """
         return build_ledger_info(service)
 
-    @mcp.tool()
+    @tool
     def query(
         bql: str,
         limit: int | None = None,
@@ -109,7 +159,7 @@ def create_server(config: Config) -> MCPServer:
         """
         return run_query(service, bql=bql, limit=limit, offset=offset)
 
-    @mcp.tool()
+    @tool
     def validate() -> dict[str, Any]:
         """Run a full validation of the current ledger.
 
@@ -125,7 +175,7 @@ def create_server(config: Config) -> MCPServer:
 
     if not config.read_only:
 
-        @mcp.tool()
+        @tool
         def add_transactions(
             text: str,
             dry_run: bool = False,
@@ -150,7 +200,7 @@ def create_server(config: Config) -> MCPServer:
                 expected_ledger_version=expected_ledger_version,
             )
 
-        @mcp.tool()
+        @tool
         def open_account(
             account: str,
             currencies: list[str] | None = None,
@@ -180,7 +230,7 @@ def create_server(config: Config) -> MCPServer:
                 dry_run=dry_run,
             )
 
-        @mcp.tool()
+        @tool
         def edit_transaction(
             entry_id: dict[str, Any],
             new_text: str,
@@ -207,7 +257,7 @@ def create_server(config: Config) -> MCPServer:
                 dry_run=dry_run,
             )
 
-        @mcp.tool()
+        @tool
         def delete_transaction(
             entry_id: dict[str, Any],
             dry_run: bool = False,
@@ -225,7 +275,7 @@ def create_server(config: Config) -> MCPServer:
             """
             return delete_transaction_service(service, entry_id, dry_run=dry_run)
 
-        @mcp.tool()
+        @tool
         def rename_account(
             account: str,
             new_account: str,
@@ -253,7 +303,7 @@ def create_server(config: Config) -> MCPServer:
                 dry_run=dry_run,
             )
 
-        @mcp.tool()
+        @tool
         def rename_tag(
             tag: str,
             new_tag: str,
@@ -273,7 +323,7 @@ def create_server(config: Config) -> MCPServer:
             """
             return rename_tag_tool(service, tag, new_tag, dry_run=dry_run)
 
-        @mcp.tool()
+        @tool
         def rename_link(
             link: str,
             new_link: str,
@@ -293,7 +343,7 @@ def create_server(config: Config) -> MCPServer:
             """
             return rename_link_tool(service, link, new_link, dry_run=dry_run)
 
-    @mcp.tool()
+    @tool
     def find_transactions(
         payee: str | None = None,
         narration_contains: str | None = None,

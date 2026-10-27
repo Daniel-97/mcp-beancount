@@ -25,6 +25,7 @@ class Config:
     allow_edit_outside_inbox: bool = False
     query_limit: int = DEFAULT_QUERY_LIMIT
     transport: str = "stdio"
+    verbose: bool = False
 
 
 def default_ledger_path() -> Path:
@@ -55,6 +56,7 @@ def build_config(
     allow_edit_outside_inbox: bool = False,
     query_limit: int = DEFAULT_QUERY_LIMIT,
     transport: str = "stdio",
+    verbose: bool = False,
     env: Mapping[str, str] | None = None,
 ) -> Config:
     """Build and validate the server configuration."""
@@ -71,4 +73,5 @@ def build_config(
         allow_edit_outside_inbox=allow_edit_outside_inbox,
         query_limit=query_limit,
         transport=transport,
+        verbose=verbose,
     )

@@ -219,3 +219,14 @@ def testBuildConfig_shouldCombineLedgerInboxAndFlags_whenAllOptionsAreProvided(
     assert config.allow_edit_outside_inbox is True
     assert config.query_limit == 250
     assert config.transport == "stdio"
+
+
+def testBuildConfig_shouldStoreVerbose_whenEnabled(tmp_path: Path) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+
+    # When
+    config = build_config(str(ledger), verbose=True)
+
+    # Then
+    assert config.verbose is True

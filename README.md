@@ -70,7 +70,8 @@ Flag principali:
 - `--read-only` — disabilita i tool di scrittura;
 - `--allow-edit-outside-inbox` — consente modifiche fuori dall'inbox;
 - `--query-limit` — limite predefinito per `query` (1–1000);
-- `--transport stdio` — trasporto MCP.
+- `--transport stdio` — trasporto MCP;
+- `--verbose` — logga le chiamate dei tool su stderr (stdout resta riservato al protocollo MCP).
 
 Esempio:
 
