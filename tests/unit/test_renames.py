@@ -52,6 +52,18 @@ def testRewriteAccountLine_shouldReplaceBothPadAccounts_whenMatched() -> None:
     assert second == "2026-01-01 pad Assets:Bank:Cash Equity:Opening\n"
 
 
+@pytest.mark.parametrize("flag", ["&", "P", "!", "*"])
+def testRewriteAccountLine_shouldPreservePostingFlag_whenRenaming(flag: str) -> None:
+    # Given
+    line = f"  {flag} Expenses:Food   10.00 EUR\n"
+
+    # When
+    result = _rewrite_account_line(line, "Expenses:Food", "Expenses:Groceries", False)
+
+    # Then
+    assert result == f"  {flag} Expenses:Groceries   10.00 EUR\n"
+
+
 def testRewriteAccountLine_shouldNotReplaceNarrationText_whenAccountAppearsInString() -> None:
     # Given
     line = '2026-01-01 * "Expenses:Food" "Narration Expenses:Food"\n'

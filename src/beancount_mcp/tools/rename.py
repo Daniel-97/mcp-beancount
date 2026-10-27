@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,12 @@ def rename_account(
             include_subaccounts=include_subaccounts,
         ),
         dry_run=dry_run,
+        normalize_before=lambda issue: _normalize_account_issue(
+            issue,
+            account,
+            new_account,
+            include_subaccounts,
+        ),
     )
 
 
@@ -56,6 +63,12 @@ def rename_tag(
         service,
         lambda snapshot: plan_tag_rename(snapshot, tag, new_tag),
         dry_run=dry_run,
+        normalize_before=lambda issue: _normalize_token_issue(
+            issue,
+            "#",
+            tag,
+            new_tag,
+        ),
     )
 
 
@@ -70,6 +83,12 @@ def rename_link(
         service,
         lambda snapshot: plan_link_rename(snapshot, link, new_link),
         dry_run=dry_run,
+        normalize_before=lambda issue: _normalize_token_issue(
+            issue,
+            "^",
+            link,
+            new_link,
+        ),
     )
 
 
@@ -78,6 +97,7 @@ def _perform_rename(
     planner: Planner,
     *,
     dry_run: bool,
+    normalize_before: Callable[[Issue], Issue] | None = None,
 ) -> dict[str, Any]:
     if service.config.read_only:
         return tool_error(
@@ -97,7 +117,7 @@ def _perform_rename(
         authorized = _authorize_files(snapshot, service, plan.modifications)
         if authorized is not None:
             return authorized
-        issues = _validate(snapshot, plan)
+        issues = _validate(snapshot, plan, normalize_before)
         if isinstance(issues, dict):
             return issues
         if issues:
@@ -116,7 +136,7 @@ def _perform_rename(
             authorized = _authorize_files(snapshot, service, plan.modifications)
             if authorized is not None:
                 return authorized
-            issues = _validate(snapshot, plan)
+            issues = _validate(snapshot, plan, normalize_before)
             if isinstance(issues, dict):
                 return issues
             if issues:
@@ -149,6 +169,9 @@ def _perform_rename(
                 )
             after = _load(service)
             if isinstance(after, dict):
+                after["error"]["message"] = (
+                    f"Rename applicato ma il ledger non è ricaricabile: {after['error']['message']}"
+                )
                 return after
             return _success(after, plan, dry_run=False)
     except LockError as exc:
@@ -212,6 +235,7 @@ def _authorize_files(
 def _validate(
     snapshot: LedgerSnapshot,
     plan: RenamePlan,
+    normalize_before: Callable[[Issue], Issue] | None,
 ) -> list[Issue] | dict[str, Any]:
     try:
         return validate_staged_tree(
@@ -219,6 +243,7 @@ def _validate(
             snapshot.files,
             plan.modifications,
             snapshot.errors,
+            normalize_before=normalize_before,
         )
     except (OSError, StagingError) as exc:
         return tool_error(
@@ -266,4 +291,47 @@ def _rename_error(error: RenameError) -> dict[str, Any]:
         error.message,
         error.hint,
         details=error.details,
+    )
+
+
+def _normalize_account_issue(
+    issue: Issue,
+    old_account: str,
+    new_account: str,
+    include_subaccounts: bool,
+) -> Issue:
+    old = old_account.strip()
+    new = new_account.strip()
+    suffix = r"(?::[A-Za-z0-9-]+)*" if include_subaccounts else ""
+    pattern = re.compile(rf"(?<![A-Za-z0-9:-]){re.escape(old)}{suffix}(?![A-Za-z0-9-])")
+    message = pattern.sub(
+        lambda match: new + match.group(0)[len(old) :],
+        issue.message,
+    )
+    return Issue(
+        type=issue.type,
+        message=message,
+        file=issue.file,
+        line=issue.line,
+    )
+
+
+def _normalize_token_issue(
+    issue: Issue,
+    marker: str,
+    old_value: str,
+    new_value: str,
+) -> Issue:
+    old = old_value.strip().lstrip(marker)
+    new = new_value.strip().lstrip(marker)
+    pattern = re.compile(
+        rf"(?<![A-Za-z0-9\-_/.]){re.escape(marker)}{re.escape(old)}"
+        r"(?![A-Za-z0-9\-_/.])"
+    )
+    message = pattern.sub(f"{marker}{new}", issue.message)
+    return Issue(
+        type=issue.type,
+        message=message,
+        file=issue.file,
+        line=issue.line,
     )

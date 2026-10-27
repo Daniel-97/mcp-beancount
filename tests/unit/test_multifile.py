@@ -2,18 +2,54 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
 
 import pytest
 
+from beancount_mcp import multifile
 from beancount_mcp.multifile import (
     TransactionError,
     commit_files,
     recover_pending_transaction,
     transaction_dir,
 )
+
+
+def _sha(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _pending_journal(
+    ledger: Path,
+    files: dict[Path, str],
+    *,
+    committed: bool = False,
+) -> tuple[Path, list[dict[str, str]]]:
+    directory = transaction_dir(ledger)
+    backup_dir = directory / "backup"
+    backup_dir.mkdir(parents=True)
+    entries: list[dict[str, str]] = []
+    for index, (path, original) in enumerate(files.items()):
+        backup = backup_dir / str(index)
+        backup.write_text(original, encoding="utf-8")
+        entries.append(
+            {
+                "path": str(path),
+                "backup": str(backup),
+                "original_sha256": _sha(original),
+                "new_sha256": _sha("new"),
+            }
+        )
+    (directory / "journal.json").write_text(
+        json.dumps({"version": 2, "files": entries}),
+        encoding="utf-8",
+    )
+    if committed:
+        (directory / "committed").write_text("committed\n", encoding="utf-8")
+    return directory, entries
 
 
 def testCommitFiles_shouldWriteAllFiles_whenSuccessful(tmp_path: Path) -> None:
@@ -32,6 +68,25 @@ def testCommitFiles_shouldWriteAllFiles_whenSuccessful(tmp_path: Path) -> None:
     assert first.read_text(encoding="utf-8") == "new a\n"
     assert second.read_text(encoding="utf-8") == "new b\n"
     assert not transaction_dir(ledger).exists()
+
+
+def testCommitFiles_shouldNotRecoverImplicitly_whenJournalExists(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("main\n")
+    target = tmp_path / "a.bean"
+    target.write_text("old a\n")
+    _pending_journal(ledger, {target: "old a\n"})
+
+    # When
+    with pytest.raises(TransactionError, match="Transazione pendente"):
+        commit_files(ledger, {target: "new a\n"})
+
+    # Then
+    assert target.read_text(encoding="utf-8") == "old a\n"
+    assert transaction_dir(ledger).exists()
 
 
 def testCommitFiles_shouldRestoreAllFiles_whenReplaceFails(
@@ -66,6 +121,29 @@ def testCommitFiles_shouldRestoreAllFiles_whenReplaceFails(
     assert not transaction_dir(ledger).exists()
 
 
+def testCommitFiles_shouldSkipWrite_whenTargetWasNeverModified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("main\n")
+    target = tmp_path / "a.bean"
+    target.write_text("old a\n")
+
+    def fail_write(path: Path, content: str) -> None:
+        raise OSError("read-only")
+
+    monkeypatch.setattr(multifile, "atomic_write", fail_write)
+
+    # When
+    with pytest.raises(TransactionError, match="annullata"):
+        commit_files(ledger, {target: "new a\n"})
+
+    # Then
+    assert target.read_text(encoding="utf-8") == "old a\n"
+    assert not transaction_dir(ledger).exists()
+
+
 def testRecoverPendingTransaction_shouldRestoreBackups_whenJournalExists(
     tmp_path: Path,
 ) -> None:
@@ -74,34 +152,14 @@ def testRecoverPendingTransaction_shouldRestoreBackups_whenJournalExists(
     ledger.write_text("main\n")
     first = tmp_path / "a.bean"
     second = tmp_path / "b.bean"
+    first.write_text("old a\n")
+    second.write_text("old b\n")
+    directory, _ = _pending_journal(
+        ledger,
+        {first: "old a\n", second: "old b\n"},
+    )
     first.write_text("new a\n")
     second.write_text("new b\n")
-    directory = transaction_dir(ledger)
-    backup_dir = directory / "backup"
-    backup_dir.mkdir(parents=True)
-    (backup_dir / "0").write_text("old a\n", encoding="utf-8")
-    (backup_dir / "1").write_text("old b\n", encoding="utf-8")
-    journal = {
-        "version": 1,
-        "files": [
-            {
-                "path": str(first),
-                "backup": str(backup_dir / "0"),
-                "original_sha256": "x",
-                "new_sha256": "y",
-            },
-            {
-                "path": str(second),
-                "backup": str(backup_dir / "1"),
-                "original_sha256": "x",
-                "new_sha256": "y",
-            },
-        ],
-    }
-    (directory / "journal.json").write_text(
-        json.dumps(journal),
-        encoding="utf-8",
-    )
 
     # When
     recovered = recover_pending_transaction(ledger)
@@ -110,6 +168,46 @@ def testRecoverPendingTransaction_shouldRestoreBackups_whenJournalExists(
     assert recovered is True
     assert first.read_text(encoding="utf-8") == "old a\n"
     assert second.read_text(encoding="utf-8") == "old b\n"
+    assert not directory.exists()
+
+
+def testRecoverPendingTransaction_shouldOnlyCleanUp_whenCommitted(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("main\n")
+    target = tmp_path / "a.bean"
+    target.write_text("new a\n")
+    directory, _ = _pending_journal(
+        ledger,
+        {target: "old a\n"},
+        committed=True,
+    )
+
+    # When
+    recovered = recover_pending_transaction(ledger)
+
+    # Then
+    assert recovered is True
+    assert target.read_text(encoding="utf-8") == "new a\n"
+    assert not directory.exists()
+
+
+def testRecoverPendingTransaction_shouldRemoveDirectory_whenJournalMissing(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("main\n")
+    directory = transaction_dir(ledger)
+    (directory / "backup").mkdir(parents=True)
+
+    # When
+    recovered = recover_pending_transaction(ledger)
+
+    # Then
+    assert recovered is True
     assert not directory.exists()
 
 
@@ -143,3 +241,47 @@ def testRecoverPendingTransaction_shouldRaise_whenJournalIsCorrupt(
 
     # Then
     assert "Journal" in str(raised.value)
+
+
+def testRecoverPendingTransaction_shouldRaise_whenBackupHashMismatch(
+    tmp_path: Path,
+) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("main\n")
+    target = tmp_path / "a.bean"
+    target.write_text("new a\n")
+    directory, entries = _pending_journal(ledger, {target: "old a\n"})
+    entries[0]["original_sha256"] = "0" * 64
+    (directory / "journal.json").write_text(
+        json.dumps({"version": 2, "files": entries}),
+        encoding="utf-8",
+    )
+
+    # When
+    with pytest.raises(TransactionError, match="Recovery incompleto") as raised:
+        recover_pending_transaction(ledger)
+
+    # Then
+    assert "Recovery incompleto" in str(raised.value)
+    assert directory.exists()
+
+
+def testCommitFiles_shouldCleanCommittedDirectory_whenPresent(tmp_path: Path) -> None:
+    # Given
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("main\n")
+    target = tmp_path / "a.bean"
+    target.write_text("new a\n")
+    directory, _ = _pending_journal(
+        ledger,
+        {target: "old a\n"},
+        committed=True,
+    )
+
+    # When
+    commit_files(ledger, {target: "newer a\n"})
+
+    # Then
+    assert target.read_text(encoding="utf-8") == "newer a\n"
+    assert not directory.exists()

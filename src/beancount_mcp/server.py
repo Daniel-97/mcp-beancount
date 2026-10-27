@@ -15,7 +15,11 @@ from beancount_mcp.entry_service import (
     edit_transaction as edit_transaction_service,
 )
 from beancount_mcp.ledger import LedgerService
-from beancount_mcp.multifile import recover_pending_transaction
+from beancount_mcp.multifile import (
+    TransactionError,
+    recover_pending_transaction,
+    transaction_dir,
+)
 from beancount_mcp.tools.add_transactions import add_transactions as add_transactions_tool
 from beancount_mcp.tools.find_transactions import (
     DEFAULT_FIND_LIMIT,
@@ -32,11 +36,39 @@ from beancount_mcp.tools.rename import (
 from beancount_mcp.tools.rename import rename_link as rename_link_tool
 from beancount_mcp.tools.rename import rename_tag as rename_tag_tool
 from beancount_mcp.tools.validate import build_validation
+from beancount_mcp.writer import LockError, write_lock
+
+
+def _recover_on_startup(config: Config) -> None:
+    directory = transaction_dir(config.ledger_path)
+    if not directory.exists():
+        return
+    if config.read_only:
+        committed = (directory / "committed").exists()
+        journal = (directory / "journal.json").exists()
+        if committed or not journal:
+            # Nothing to roll back: the ledger content is complete (committed)
+            # or no target file was written before the journal was created.
+            return
+        raise RuntimeError(
+            "Transazione multi-file pendente. Riavvia il server senza "
+            f"--read-only per eseguire il recovery: {directory}"
+        )
+    try:
+        with write_lock(config.ledger_path):
+            recover_pending_transaction(config.ledger_path)
+    except LockError as exc:
+        raise RuntimeError(
+            "Transazione multi-file pendente ma il lock del ledger è attivo. "
+            f"Attendi la fine della scrittura o rimuovi il lock: {exc}"
+        ) from exc
+    except TransactionError as exc:
+        raise RuntimeError(f"Recovery della transazione multi-file fallito: {exc}") from exc
 
 
 def create_server(config: Config) -> MCPServer:
     """Create the MCP server with the ledger tools registered."""
-    recover_pending_transaction(config.ledger_path)
+    _recover_on_startup(config)
     mcp = MCPServer("beancount-mcp", version=__version__)
     service = LedgerService(config)
 
@@ -229,10 +261,11 @@ def create_server(config: Config) -> MCPServer:
         ) -> dict[str, Any]:
             """Rename a tag in transactions and pushtag/poptag directives.
 
-            Tags inside quoted narrations and comments are not modified. The
-            rename is validated and applied across all included files as one
-            journaled operation. By default only the inbox is editable; other
-            included files require --allow-edit-outside-inbox.
+            Tags inside quoted narrations and comments are not modified. If the
+            new tag exists already, occurrences are merged. The rename is
+            validated and applied across all included files as one journaled
+            operation. By default only the inbox is editable; other included
+            files require --allow-edit-outside-inbox.
 
             Examples:
             - rename_tag("food", "meals")
@@ -248,10 +281,11 @@ def create_server(config: Config) -> MCPServer:
         ) -> dict[str, Any]:
             """Rename a link in transaction headers.
 
-            Links inside quoted narrations and comments are not modified. The
-            rename is validated and applied across all included files as one
-            journaled operation. By default only the inbox is editable; other
-            included files require --allow-edit-outside-inbox.
+            Links inside quoted narrations and comments are not modified. If the
+            new link exists already, occurrences are merged. The rename is
+            validated and applied across all included files as one journaled
+            operation. By default only the inbox is editable; other included
+            files require --allow-edit-outside-inbox.
 
             Examples:
             - rename_link("november", "2026-11")

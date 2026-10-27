@@ -6,7 +6,7 @@ import glob
 import os
 import re
 import tempfile
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -50,6 +50,7 @@ def validate_staged_tree(
     files: Iterable[Path],
     modifications: Mapping[Path, str],
     before_errors: Iterable[BeancountError],
+    normalize_before: Callable[[Issue], Issue] | None = None,
 ) -> list[Issue]:
     """Load a staged copy with several modified files and return new issues."""
     with _staged_tree(
@@ -60,6 +61,8 @@ def validate_staged_tree(
         _, errors, _ = loader.load_file(str(staged_main))
 
     before = issues_from_errors(before_errors)
+    if normalize_before is not None:
+        before = [normalize_before(issue) for issue in before]
     after = issues_from_errors(errors)
     return [_translate_issue(issue, path_map) for issue in compare_issues(before, after)]
 

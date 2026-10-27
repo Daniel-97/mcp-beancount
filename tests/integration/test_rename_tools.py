@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ from beancount_mcp.multifile import transaction_dir
 from beancount_mcp.server import create_server
 from beancount_mcp.tools.rename import rename_account, rename_link, rename_tag
 from beancount_mcp.tools.validate import build_validation
+from beancount_mcp.writer import lock_path_for
 
 
 def _service(ledger: Any, **options: Any) -> LedgerService:
@@ -450,8 +452,8 @@ def testCreateServer_shouldRecoverPendingTransaction_whenJournalExists(
             {
                 "path": str(ledger.inbox),
                 "backup": str(backup_dir / "0"),
-                "original_sha256": "x",
-                "new_sha256": "y",
+                "original_sha256": hashlib.sha256(original.encode("utf-8")).hexdigest(),
+                "new_sha256": hashlib.sha256(modified.encode("utf-8")).hexdigest(),
             }
         ],
     }
@@ -463,3 +465,251 @@ def testCreateServer_shouldRecoverPendingTransaction_whenJournalExists(
     # Then
     assert ledger.inbox.read_text(encoding="utf-8") == original
     assert not directory.exists()
+
+
+def _pending_inbox_journal(ledger: Any, original: str, modified: str) -> Path:
+    directory = transaction_dir(ledger.main)
+    backup_dir = directory / "backup"
+    backup_dir.mkdir(parents=True)
+    (backup_dir / "0").write_text(original, encoding="utf-8")
+    journal = {
+        "version": 2,
+        "files": [
+            {
+                "path": str(ledger.inbox),
+                "backup": str(backup_dir / "0"),
+                "original_sha256": hashlib.sha256(original.encode("utf-8")).hexdigest(),
+                "new_sha256": hashlib.sha256(modified.encode("utf-8")).hexdigest(),
+            }
+        ],
+    }
+    (directory / "journal.json").write_text(json.dumps(journal), encoding="utf-8")
+    return directory
+
+
+def testRenameAccount_shouldPreservePostingFlag_whenFlagIsAmpersand(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food EUR\n"
+        '2026-01-02 * "Shop" "Flagged"\n'
+        "  & Expenses:Food   10.00 EUR\n"
+        "  Assets:Cash      -10.00 EUR\n",
+    )
+    service = _service(ledger, allow_edit_outside_inbox=True)
+
+    # When
+    result = rename_account(service, "Expenses:Food", "Expenses:Groceries")
+
+    # Then
+    assert result["ok"] is True
+    assert "& Expenses:Groceries" in ledger.main.read_text(encoding="utf-8")
+    assert build_validation(service)["valid"] is True
+
+
+def testRenameAccount_shouldReturnAccountExists_whenTargetIsReferencedButNotOpened(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food EUR\n"
+        '2026-01-02 * "Shop" "Unopened target"\n'
+        "  Expenses:Groceries   10.00 EUR\n"
+        "  Assets:Cash         -10.00 EUR\n",
+    )
+    service = _service(ledger, allow_edit_outside_inbox=True)
+
+    # When
+    result = rename_account(service, "Expenses:Food", "Expenses:Groceries")
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "ACCOUNT_EXISTS"
+
+
+def testRenameAccount_shouldSubtractPreexistingError_whenMessageContainsOldAccount(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        '2026-01-02 * "Shop" "Unopened"\n'
+        "  Expenses:Food   10.00 EUR\n"
+        "  Assets:Cash    -10.00 EUR\n",
+    )
+    service = _service(ledger, allow_edit_outside_inbox=True)
+
+    # When
+    result = rename_account(service, "Expenses:Food", "Expenses:Groceries")
+
+    # Then
+    assert result["ok"] is True
+    assert build_validation(service)["error_count"] == 1
+    assert "Expenses:Groceries" in ledger.main.read_text(encoding="utf-8")
+
+
+def testRenameAccount_shouldPreserveSymlinkedIncludedFile_whenRenaming(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "link.bean"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food EUR\n",
+    )
+    real = ledger.root / "real.bean"
+    real.write_text(
+        '2026-01-02 * "Shop" "Linked"\n  Expenses:Food   10.00 EUR\n  Assets:Cash    -10.00 EUR\n',
+        encoding="utf-8",
+    )
+    link = ledger.root / "link.bean"
+    link.symlink_to(real)
+    service = _service(ledger, allow_edit_outside_inbox=True)
+
+    # When
+    result = rename_account(service, "Expenses:Food", "Expenses:Groceries")
+
+    # Then
+    assert result["ok"] is True
+    assert link.is_symlink() is True
+    assert "Expenses:Groceries" in real.read_text(encoding="utf-8")
+
+
+def testRenameAccount_shouldPreserveSymlinkedInbox_whenRenaming(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\ninclude "inbox.bean"\n',
+        inbox_text=None,
+    )
+    real = ledger.root / "real-inbox.bean"
+    real.write_text(
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food EUR\n"
+        '2026-01-02 * "Shop" "Lunch"\n'
+        "  Expenses:Food   10.00 EUR\n"
+        "  Assets:Cash    -10.00 EUR\n",
+        encoding="utf-8",
+    )
+    ledger.inbox.symlink_to(real)
+    service = _service(ledger)
+
+    # When
+    result = rename_account(service, "Expenses:Food", "Expenses:Groceries")
+
+    # Then
+    assert result["ok"] is True
+    assert ledger.inbox.is_symlink() is True
+    assert "Expenses:Groceries" in real.read_text(encoding="utf-8")
+
+
+def testRenameAccount_shouldWorkWithoutInbox_whenFlagIsOn(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Expenses:Food EUR\n"
+        '2026-01-02 * "Shop" "No inbox"\n'
+        "  Expenses:Food   10.00 EUR\n"
+        "  Assets:Cash    -10.00 EUR\n",
+        inbox_text=None,
+    )
+    service = _service(ledger, allow_edit_outside_inbox=True)
+
+    # When
+    result = rename_account(service, "Expenses:Food", "Expenses:Groceries")
+
+    # Then
+    assert result["ok"] is True
+    assert "Expenses:Groceries" in ledger.main.read_text(encoding="utf-8")
+
+
+def testCreateServer_shouldRefuseStartup_whenPendingJournalAndReadOnly(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n",
+    )
+    original = ledger.inbox.read_text(encoding="utf-8")
+    modified = original + '\n2026-01-02 note Assets:Cash "pending"\n'
+    ledger.inbox.write_text(modified, encoding="utf-8")
+    directory = _pending_inbox_journal(ledger, original, modified)
+
+    # When
+    with pytest.raises(RuntimeError, match="read-only") as raised:
+        create_server(build_config(str(ledger.main), read_only=True))
+
+    # Then
+    assert "read-only" in str(raised.value)
+    assert ledger.inbox.read_text(encoding="utf-8") == modified
+    assert directory.exists()
+
+
+def testCreateServer_shouldRefuseStartup_whenRecoveryLockIsHeld(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n",
+    )
+    original = ledger.inbox.read_text(encoding="utf-8")
+    modified = original + '\n2026-01-02 note Assets:Cash "pending"\n'
+    ledger.inbox.write_text(modified, encoding="utf-8")
+    directory = _pending_inbox_journal(ledger, original, modified)
+    lock = lock_path_for(ledger.main)
+    lock.write_text("held\n", encoding="utf-8")
+
+    # When
+    try:
+        with pytest.raises(RuntimeError, match="lock") as raised:
+            create_server(build_config(str(ledger.main)))
+    finally:
+        lock.unlink(missing_ok=True)
+
+    # Then
+    assert "lock" in str(raised.value)
+    assert ledger.inbox.read_text(encoding="utf-8") == modified
+    assert directory.exists()
+
+
+def testCreateServer_shouldStartReadOnly_whenJournalIsCommitted(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n",
+    )
+    original = ledger.inbox.read_text(encoding="utf-8")
+    modified = original + '\n2026-01-02 note Assets:Cash "committed"\n'
+    ledger.inbox.write_text(modified, encoding="utf-8")
+    directory = _pending_inbox_journal(ledger, original, modified)
+    (directory / "committed").write_text("committed\n", encoding="utf-8")
+
+    # When
+    server = create_server(build_config(str(ledger.main), read_only=True))
+
+    # Then
+    assert server.name == "beancount-mcp"
+    assert ledger.inbox.read_text(encoding="utf-8") == modified
+    assert directory.exists()

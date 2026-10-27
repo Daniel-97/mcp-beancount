@@ -128,5 +128,9 @@ def _run_server(argv: Sequence[str]) -> int:
             )
         return 2
 
-    server.run(config)
+    try:
+        server.run(config)
+    except RuntimeError as exc:
+        print(f"Errore: {exc}", file=sys.stderr)
+        return 1
     return 0

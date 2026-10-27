@@ -191,7 +191,8 @@ valori arbitrari.
 
 Rinominano rispettivamente tag (`#tag`) e link (`^link`) in tutti i file
 inclusi. I tag vengono aggiornati anche in `pushtag`/`poptag`; tag e link dentro
-stringhe o commenti non vengono modificati.
+stringhe o commenti non vengono modificati. Se il nuovo nome esiste già, le
+occorrenze vengono unite.
 
 ```text
 rename_tag("food", "meals")

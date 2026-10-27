@@ -12,6 +12,8 @@ from typing import Any
 
 from beancount_mcp.writer import atomic_write
 
+_COMMITTED_MARKER = "committed"
+
 
 class TransactionError(Exception):
     """Raised when a multi-file transaction cannot be completed safely."""
@@ -28,34 +30,34 @@ def commit_files(
 ) -> None:
     """Apply several file modifications as one application-level transaction.
 
-    The caller must hold the ledger write lock.
+    The caller must hold the ledger write lock. A pending journal is never
+    recovered implicitly; the server must run recovery before planning writes.
     """
     if not modifications:
         return
 
     directory = transaction_dir(ledger_path)
     if directory.exists():
-        recover_pending_transaction(ledger_path)
+        if (directory / _COMMITTED_MARKER).exists() or not (directory / "journal.json").exists():
+            shutil.rmtree(directory, ignore_errors=True)
+        else:
+            raise TransactionError(
+                "Transazione pendente: riavvia il server per eseguire il recovery "
+                f"prima di nuove scritture ({directory})."
+            )
 
-    try:
-        directory.mkdir(parents=False, exist_ok=False)
-    except FileExistsError as exc:
-        raise TransactionError(f"Transazione pendente non recuperabile: {directory}") from exc
-
-    backup_dir = directory / "backup"
-    backup_dir.mkdir()
     entries: list[dict[str, Any]] = []
-
     try:
+        directory.mkdir(mode=0o700, parents=False, exist_ok=False)
+        backup_dir = directory / "backup"
+        backup_dir.mkdir(mode=0o700)
+
         for index, (path, content) in enumerate(modifications.items()):
             if not path.is_file():
                 raise TransactionError(f"File non trovato: {path}")
-            try:
-                original = path.read_bytes().decode("utf-8")
-            except (OSError, UnicodeDecodeError) as exc:
-                raise TransactionError(f"Impossibile leggere {path} per il backup: {exc}") from exc
+            original = _read_text(path)
             backup = backup_dir / str(index)
-            _write_fsync(backup, original)
+            _write_fsync(backup, original, mode=0o600)
             entries.append(
                 {
                     "path": str(path),
@@ -65,17 +67,19 @@ def commit_files(
                 }
             )
 
-        journal = {
-            "version": 1,
-            "files": entries,
-        }
+        journal = {"version": 2, "files": entries}
         _write_fsync(
             directory / "journal.json",
             json.dumps(journal, ensure_ascii=False, indent=2),
+            mode=0o600,
         )
+        _fsync_dir(directory)
 
         for path, content in modifications.items():
             atomic_write(path, content)
+
+        _write_fsync(directory / _COMMITTED_MARKER, "committed\n", mode=0o600)
+        _fsync_dir(directory)
     except Exception as exc:
         restored = _restore_backups(entries)
         if restored:
@@ -89,12 +93,26 @@ def commit_files(
 
 
 def recover_pending_transaction(ledger_path: Path) -> bool:
-    """Roll back a transaction left pending by a crash, if present."""
+    """Recover a transaction left pending by a crash.
+
+    Returns ``True`` when a transaction directory was present. A committed
+    transaction is only cleaned up; an uncommitted one is rolled back.
+    """
     directory = transaction_dir(ledger_path)
     if not directory.exists():
         return False
 
+    if (directory / _COMMITTED_MARKER).exists():
+        shutil.rmtree(directory, ignore_errors=True)
+        return True
+
     journal_path = directory / "journal.json"
+    if not journal_path.exists():
+        # The process died before the journal was written, so no target file
+        # was modified yet.
+        shutil.rmtree(directory, ignore_errors=True)
+        return True
+
     try:
         journal = json.loads(journal_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -122,18 +140,53 @@ def _restore_backups(entries: list[dict[str, Any]]) -> bool:
         try:
             path = Path(str(entry["path"]))
             backup = Path(str(entry["backup"]))
-            original = backup.read_bytes().decode("utf-8")
+            expected = str(entry["original_sha256"])
+            original = _read_text(backup)
+            if _sha256(original) != expected:
+                restored = False
+                continue
+            if path.exists() and _sha256(_read_text(path)) == expected:
+                continue
             atomic_write(path, original)
+            if not path.exists() or _sha256(_read_text(path)) != expected:
+                restored = False
         except Exception:
             restored = False
     return restored
 
 
-def _write_fsync(path: Path, content: str) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
+def _write_fsync(path: Path, content: str, *, mode: int = 0o600) -> None:
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+        mode,
+    )
+    with os.fdopen(
+        descriptor,
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
         handle.write(content)
         handle.flush()
         os.fsync(handle.fileno())
+
+
+def _fsync_dir(path: Path) -> None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def _read_text(path: Path) -> str:
+    return path.read_bytes().decode("utf-8")
 
 
 def _sha256(content: str) -> str:

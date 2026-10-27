@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from beancount.core import account as beancount_account
+from beancount.core import getters
 
-from beancount_mcp.accounts import account_infos
 from beancount_mcp.ledger import LedgerSnapshot
 
 TAG_RE = re.compile(r"[A-Za-z0-9\-_/.]+")
@@ -80,8 +81,6 @@ def plan_account_rename(
     """Plan an account rename across the current ledger snapshot."""
     old_account = old_account.strip()
     new_account = new_account.strip()
-    if old_account == new_account:
-        return RenamePlan(changes=(), modifications={})
 
     if not beancount_account.is_valid(new_account):
         raise RenameError(
@@ -104,8 +103,8 @@ def plan_account_rename(
             "rename con sottoconti.",
             "Scegli un nuovo nome che non sia dentro il vecchio account.",
         )
-    infos = account_infos(snapshot.entries)
-    if old_account != new_account and new_account in infos:
+    existing_accounts = getters.get_accounts(list(snapshot.entries))
+    if old_account != new_account and new_account in existing_accounts:
         raise RenameError(
             "ACCOUNT_EXISTS",
             f"L'account {new_account} esiste già.",
@@ -115,7 +114,12 @@ def plan_account_rename(
 
     changes: list[RenameChange] = []
     modifications: dict[Path, str] = {}
-    for file in snapshot.files:
+    seen: set[Path] = set()
+    for source in snapshot.files:
+        file = Path(os.path.realpath(source))
+        if file in seen:
+            continue
+        seen.add(file)
         text = _read_text(file)
         lines = text.splitlines(keepends=True)
         rewritten_lines: list[str] = []
@@ -181,7 +185,12 @@ def _plan_token_rename(
 
     changes: list[RenameChange] = []
     modifications: dict[Path, str] = {}
-    for file in snapshot.files:
+    seen: set[Path] = set()
+    for source in snapshot.files:
+        file = Path(os.path.realpath(source))
+        if file in seen:
+            continue
+        seen.add(file)
         text = _read_text(file)
         lines = text.splitlines(keepends=True)
         rewritten_lines: list[str] = []
@@ -271,7 +280,7 @@ def _rewrite_account_line(
             return f"{directive.group(1)}{account}{directive.group(3)}{newline}"
         return body + newline
 
-    posting = re.match(r"^(\s+(?:[!*]\s+)?)(\S+)(.*)$", body)
+    posting = re.match(r"^(\s+(?:\S\s+)?)(\S+)(.*)$", body)
     if posting:
         account = _replace_account_token(
             posting.group(2),
@@ -354,4 +363,17 @@ def _rewrite_token_line(
 
 
 def _read_text(path: Path) -> str:
-    return path.read_bytes().decode("utf-8")
+    try:
+        return path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RenameError(
+            "LEDGER_ERROR",
+            f"File non UTF-8: {path}",
+            "Converti il file del ledger in UTF-8 e riprova.",
+        ) from exc
+    except OSError as exc:
+        raise RenameError(
+            "LEDGER_ERROR",
+            f"Impossibile leggere {path}: {exc}",
+            "Verifica che il file esista e sia leggibile.",
+        ) from exc
