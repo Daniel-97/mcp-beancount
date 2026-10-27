@@ -2,29 +2,6 @@
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "servers": {
-      "beancount-fixture": {
-        "type": "local",
-        "command": [
-          "uv",
-          "run",
-          "beancount-mcp",
-          "--read-only",
-          "tests/fixtures/minimal/main.bean"
-        ],
-        "cwd": "."
-      },
-      "beancount-test": {
-        "type": "local",
-        "command": [
-          "uv",
-          "run",
-          "beancount-mcp",
-          "--verbose",
-          "test-ledger/main.bean"
-        ],
-        "cwd": ".",
-        "disabled": true
-      },
       "beancount-http": {
         "type": "remote",
         "url": "http://127.0.0.1:8000/mcp",
