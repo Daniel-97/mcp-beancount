@@ -777,3 +777,33 @@ def testRenameAccount_shouldNotNormalizeSubaccountError_whenExactRename(
     assert result["ok"] is True
     assert "Expenses:Food:Sub" in ledger.main.read_text(encoding="utf-8")
     assert build_validation(service)["error_count"] == 1
+
+
+def testRenameLink_shouldReturnEntryNotInInbox_whenFlagIsOff(
+    ledger_factory: Any, snapshot_bytes: Any
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Equity:Opening-Balances\n"
+        '2026-01-02 * "Shop" "Main" ^november\n'
+        "  Assets:Cash   1.00 EUR\n"
+        "  Equity:Opening-Balances  -1.00 EUR\n",
+        inbox_text=(
+            '2026-01-03 * "Shop" "Inbox" ^november\n'
+            "  Assets:Cash   1.00 EUR\n"
+            "  Equity:Opening-Balances  -1.00 EUR\n"
+        ),
+    )
+    service = _service(ledger)
+    before = snapshot_bytes(ledger.root)
+
+    # When
+    result = rename_link(service, "november", "2026-11")
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "ENTRY_NOT_IN_INBOX"
+    assert snapshot_bytes(ledger.root) == before
