@@ -12,7 +12,7 @@
 - Sono bloccanti solo gli errori **nuovi**; gli errori preesistenti vengono sottratti come multiset.
 - `validate` restituisce tutti gli errori correnti con file, riga, tipo e messaggio.
 - Errori di I/O → `LEDGER_ERROR` strutturato.
-- I test automatici sono stati aggiunti nella fase finale (suite completa: 271 test).
+- I test automatici sono stati aggiunti nella fase finale (suite completa: 276 test).
 
 ## Task
 

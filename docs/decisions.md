@@ -121,12 +121,14 @@ La specifica cita `FastMCP`, ma nell'SDK MCP 2.x la classe è stata rinominata
 - La scrittura usa un file temporaneo nella directory di destinazione, `fsync` e
   `os.replace`; il mode del file esistente viene preservato.
 - `dry_run` esegue parsing, staging e validazione senza creare lock né scrivere.
-- Lo staging copia i file inclusi in un albero temporaneo, applica la modifica a
-  un solo file e ricarica la copia con Beancount. I path assoluti negli `include`
-  vengono riscritti nell'albero temporaneo; i path relativi restano invariati.
+- Lo staging copia i file inclusi in un albero temporaneo e applica la modifica
+  confrontando i path reali, così anche i symlink vengono gestiti. Gli `include`
+  assoluti vengono riscritti solo se il target esiste; i path relativi dei
+  `document` e di `option "documents"` vengono risolti in assoluto.
 - Il confronto usa `ErrorMultisetValidator`: solo gli errori nuovi bloccano.
-- `pad` e `balance` sono rifiutati; `include` e `plugin` sono rifiutati per
-  impedire accessi a file o esecuzione di codice tramite l'inbox.
+- `pad` e `balance` sono rifiutati; `include`, `plugin` e `option` sono rifiutati
+  per impedire accessi a file, esecuzione di codice o modifiche alle opzioni del
+  ledger tramite l'inbox.
 - `expected_ledger_version` viene controllata prima e dopo lo staging; un cambio
   concorrente produce `VERSION_CONFLICT`.
 - `add_transactions` restituisce entry formattate, `entry_count`, versione,
@@ -180,7 +182,7 @@ Convenzioni obbligatorie per i test:
 - corpo strutturato con i commenti `# Given`, `# When`, `# Then`;
 - asserzioni su comportamento e side effect reali, non sull'esistenza di mock.
 
-Stato attuale: 271 test. Copertura complessiva 93%; i moduli richiesti dalla
+Stato attuale: 276 test. Copertura complessiva 93%; i moduli richiesti dalla
 specifica sono sopra il 90%: `ledger` 100%, `entries` 100%, `validation` 100%,
 `writer` 95%, `queries` 98%. La copertura si misura con:
 

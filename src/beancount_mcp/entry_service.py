@@ -236,7 +236,8 @@ def _edit_once(
             "Le direttive balance e pad non vengono mai modificate dai tool.",
         )
 
-    parsed = _parse_new_text(new_text, resolved.path)
+    replacement_text = new_text.strip("\n")
+    parsed = _parse_new_text(replacement_text, resolved.path)
     if isinstance(parsed, dict):
         return parsed
     if len(parsed) != 1:
@@ -250,14 +251,14 @@ def _edit_once(
     entry_line = entry_meta.get("lineno", 1)
     entry_offset = int(entry_line) - 1 if isinstance(entry_line, int) else 0
 
-    new_content = replace_span(resolved.text, resolved.span, new_text)
+    new_content = replace_span(resolved.text, resolved.span, replacement_text)
     return _validate_and_write(
         service,
         snapshot,
         resolved,
         new_content,
         dry_run=dry_run,
-        new_text=new_text,
+        new_text=replacement_text,
         entry_offset=entry_offset,
     )
 
@@ -408,8 +409,8 @@ def _parse_new_text(
     if _FORBIDDEN_LINE_RE.search(new_text):
         return tool_error(
             "VALIDATION_FAILED",
-            "new_text contiene include o plugin non ammessi.",
-            "Rimuovi include e plugin dal testo.",
+            "new_text contiene include, plugin o option non ammessi.",
+            "Rimuovi include, plugin e option dal testo.",
         )
     entries, errors, _ = parser.parse_string(
         new_text,

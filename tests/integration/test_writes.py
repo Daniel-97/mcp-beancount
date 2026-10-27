@@ -499,3 +499,29 @@ def testAddTransactions_shouldExplainOpenDate_whenTransactionPrecedesOpening(
     assert result["error"]["code"] == "VALIDATION_FAILED"
     assert "2026-01-02" in result["error"]["hint"]
     assert "open_account" not in result["error"]["hint"]
+
+
+def testAddTransactions_shouldExplainActiveInterval_whenAccountOpenedAndClosed(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-02 open Assets:Cash EUR\n"
+        "2026-01-02 open Expenses:Food\n"
+        "2026-01-10 close Assets:Cash\n"
+    )
+    service = _service(ledger)
+    text = (
+        '2026-01-01 * "Shop" "Too early"\n  Expenses:Food   1.00 EUR\n  Assets:Cash    -1.00 EUR\n'
+    )
+
+    # When
+    result = add_transactions(service, text)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+    assert "2026-01-02" in result["error"]["hint"]
+    assert "2026-01-10" in result["error"]["hint"]

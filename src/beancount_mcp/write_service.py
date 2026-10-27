@@ -203,8 +203,8 @@ def _parse_proposed_text(
     if _FORBIDDEN_LINE_RE.search(text):
         return tool_error(
             "VALIDATION_FAILED",
-            "Il testo contiene una direttiva include o plugin non ammessa.",
-            "Rimuovi include e plugin: le scritture possono solo aggiungere "
+            "Il testo contiene una direttiva include, plugin o option non ammessa.",
+            "Rimuovi include, plugin e option: le scritture possono solo aggiungere "
             "direttive contabili all'inbox.",
         )
 
@@ -266,6 +266,14 @@ def _validation_hint(issues: list[Issue], snapshot: LedgerSnapshot) -> str:
                 missing = match.group(1)
                 info = infos.get(missing)
                 if info is not None:
+                    if info.open_date is not None and info.close_date is not None:
+                        opened = info.open_date.isoformat()
+                        closed = info.close_date.isoformat()
+                        return (
+                            f"L'account '{missing}' è attivo dal {opened} al "
+                            f"{closed}. Usa una data in questo intervallo o un "
+                            "altro account."
+                        )
                     if info.close_date is not None:
                         return (
                             f"L'account '{missing}' è stato chiuso il "

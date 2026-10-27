@@ -15,7 +15,7 @@
 - Con `--allow-edit-outside-inbox`: file incluso e dentro la directory del ledger (dopo realpath) → altrimenti `PATH_NOT_ALLOWED`.
 - `delete_transaction` elimina solo transazioni; open/close/balance/pad sono rifiutati.
 - Stessa validazione prima/dopo, lock e scrittura atomica di M4.
-- Test automatici aggiunti nella fase finale (suite completa: 271 test).
+- Test automatici aggiunti nella fase finale (suite completa: 276 test).
 
 ## Task
 

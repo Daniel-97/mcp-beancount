@@ -689,3 +689,65 @@ def testEditTransaction_shouldReturnPathNotAllowed_whenFileIsNotIncluded(
     # Then
     assert result["ok"] is False
     assert result["error"]["code"] == "PATH_NOT_ALLOWED"
+
+
+def testEditTransaction_shouldReturnUsableEntryId_whenNewTextHasLeadingBlankLine(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+    assert add_transactions(service, VALID_TRANSACTION)["ok"] is True
+    entry_id = _entry_id(ledger.inbox)
+    new_text = "\n" + EDITED_TRANSACTION
+
+    # When
+    result = edit_transaction(service, entry_id, new_text)
+
+    # Then
+    assert result["ok"] is True
+    assert result["entry_id"]["line"] == entry_id["line"]
+    follow_up = edit_transaction(service, result["entry_id"], VALID_TRANSACTION)
+    assert follow_up["ok"] is True
+
+
+def testEditTransaction_shouldRejectOptionAndTransaction_whenOptionPresent(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+    assert add_transactions(service, VALID_TRANSACTION)["ok"] is True
+    entry_id = _entry_id(ledger.inbox)
+    new_text = 'option "operating_currency" "USD"\n' + EDITED_TRANSACTION
+
+    # When
+    result = edit_transaction(service, entry_id, new_text)
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+
+
+def testEditTransaction_shouldRejectPadTarget_whenEntryIsPad(
+    ledger_factory: Any, snapshot_bytes: Any
+) -> None:
+    # Given
+    ledger = ledger_factory(
+        'option "operating_currency" "EUR"\n'
+        'include "inbox.bean"\n'
+        "2026-01-01 open Assets:Cash EUR\n"
+        "2026-01-01 open Equity:Opening-Balances\n",
+        inbox_text=("2026-01-02 pad Assets:Cash Equity:Opening-Balances\n"),
+    )
+    service = _service(ledger)
+    entry_id = _entry_id(ledger.inbox, needle="pad")
+    before = snapshot_bytes(ledger.root)
+
+    # When
+    result = edit_transaction(service, entry_id, '2026-01-02 note Assets:Cash "x"\n')
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
+    assert snapshot_bytes(ledger.root) == before

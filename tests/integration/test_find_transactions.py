@@ -324,3 +324,18 @@ def testFindTransactions_shouldReturnValidationFailed_whenAmountIsNotFiniteAndNo
     # Then
     assert result["ok"] is False
     assert result["error"]["code"] == "VALIDATION_FAILED"
+
+
+def testFindTransactions_shouldReturnValidationFailed_whenMaxAmountIsNaN(
+    copy_fixture: Any,
+) -> None:
+    # Given
+    ledger = copy_fixture("minimal")
+    service = _service(ledger)
+
+    # When
+    result = find_transactions(service, max_amount="NaN")
+
+    # Then
+    assert result["ok"] is False
+    assert result["error"]["code"] == "VALIDATION_FAILED"
