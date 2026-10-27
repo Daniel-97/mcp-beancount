@@ -1,0 +1,39 @@
+2026-11-01 open Assets:Cash EUR
+
+2026-11-01 open Assets:Bank:Checking EUR
+
+2026-11-01 open Expenses:Food
+
+2026-11-01 open Expenses:Transport
+
+2026-11-01 open Expenses:Rent
+
+2026-11-01 open Income:Salary EUR
+
+2026-11-01 * "Opening" "Initial balance"
+  Assets:Bank:Checking   1000.00 EUR
+  Equity:Opening-Balances
+
+2026-11-05 * "Supermarket" "Groceries" #food ^november
+  Expenses:Food            45.50 EUR
+  Assets:Bank:Checking    -45.50 EUR
+
+2026-11-10 * "Employer" "November salary" #income ^november
+  Assets:Bank:Checking   2000.00 EUR
+  Income:Salary         -2000.00 EUR
+
+2026-11-12 * "ATM" "Cash withdrawal"
+  Assets:Cash              100.00 EUR
+  Assets:Bank:Checking    -100.00 EUR
+
+2026-11-15 * "Landlord" "November rent" #housing
+  Expenses:Rent            700.00 EUR
+  Assets:Bank:Checking    -700.00 EUR
+
+2026-11-20 * "Trattoria" "Dinner" #food ^november
+  Expenses:Food             32.00 EUR
+  Assets:Cash              -32.00 EUR
+
+2026-11-22 * "Bus" "Monthly ticket" #transport
+  Expenses:Transport         2.50 EUR
+  Assets:Cash               -2.50 EUR

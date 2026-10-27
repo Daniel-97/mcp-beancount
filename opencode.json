@@ -12,6 +12,16 @@
           "tests/fixtures/minimal/main.bean"
         ],
         "cwd": "."
+      },
+      "beancount-test": {
+        "type": "local",
+        "command": [
+          "uv",
+          "run",
+          "beancount-mcp",
+          "test-ledger/main.bean"
+        ],
+        "cwd": "."
       }
     }
   }
