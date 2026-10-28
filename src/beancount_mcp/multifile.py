@@ -28,6 +28,8 @@ def transaction_dir(ledger_path: Path) -> Path:
 def commit_files(
     ledger_path: Path,
     modifications: Mapping[Path, str],
+    *,
+    expected_contents: Mapping[Path, str | None] | None = None,
 ) -> None:
     """Apply several file modifications as one application-level transaction.
 
@@ -55,22 +57,25 @@ def commit_files(
         fsync_directory(ledger_path.parent)
 
         for index, (path, content) in enumerate(modifications.items()):
-            if not path.is_file():
-                raise TransactionError(f"File non trovato: {path}")
-            original = _read_text(path)
+            if path.exists() and not path.is_file():
+                raise TransactionError(f"Il target non è un file regolare: {path}")
+            original = _read_text(path) if path.exists() else None
+            if expected_contents is not None and original != expected_contents[path]:
+                raise TransactionError(f"Il file è cambiato prima del commit: {path}")
             backup = backup_dir / str(index)
-            _write_fsync(backup, original, mode=0o600)
+            if original is not None:
+                _write_fsync(backup, original, mode=0o600)
             entries.append(
                 {
                     "path": str(path),
                     "backup": str(backup),
-                    "original_sha256": _sha256(original),
+                    "original_sha256": _sha256(original) if original is not None else None,
                     "new_sha256": _sha256(content),
                 }
             )
 
         fsync_directory(backup_dir)
-        journal = {"version": 2, "files": entries}
+        journal = {"version": 3, "files": entries}
         _write_atomic_fsync(
             directory / "journal.json",
             json.dumps(journal, ensure_ascii=False, indent=2),
@@ -80,6 +85,11 @@ def commit_files(
 
         new_hashes = {str(path): _sha256(content) for path, content in modifications.items()}
         for path, content in modifications.items():
+            if expected_contents is not None:
+                current = _read_text(path) if path.exists() else None
+                if current != expected_contents[path]:
+                    raise TransactionError(f"Il file è cambiato durante il commit: {path}")
+            _create_parents(path.parent)
             atomic_write(path, content)
             if _sha256(_read_text(path)) != new_hashes[str(path)]:
                 raise TransactionError(f"Verifica della scrittura fallita per {path}.")
@@ -147,11 +157,18 @@ def recover_pending_transaction(ledger_path: Path) -> bool:
 def _restore_backups(entries: list[dict[str, Any]]) -> bool:
     # Preflight the whole journal before touching any file. A third version
     # belongs to an external writer and must never be overwritten by recovery.
-    planned: list[tuple[Path, str]] = []
+    planned: list[tuple[Path, str | None]] = []
     try:
         for entry in entries:
             path = Path(str(entry["path"]))
             backup = Path(str(entry["backup"]))
+            if entry["original_sha256"] is None:
+                if not path.exists():
+                    continue
+                if not path.is_file() or _sha256(_read_text(path)) != entry["new_sha256"]:
+                    return False
+                planned.append((path, None))
+                continue
             expected = str(entry["original_sha256"])
             original = _read_text(backup)
             if _sha256(original) != expected or not path.is_file():
@@ -166,9 +183,13 @@ def _restore_backups(entries: list[dict[str, Any]]) -> bool:
         return False
 
     try:
-        for path, original in planned:
-            atomic_write(path, original)
-            if _sha256(_read_text(path)) != _sha256(original):
+        for path, restored_content in planned:
+            if restored_content is None:
+                path.unlink()
+                fsync_directory(path.parent)
+                continue
+            atomic_write(path, restored_content)
+            if _sha256(_read_text(path)) != _sha256(restored_content):
                 return False
     except Exception:
         return False
@@ -232,3 +253,14 @@ def _remove_transaction_directory(directory: Path) -> None:
     fsync_directory(directory)
     shutil.rmtree(directory)
     fsync_directory(directory.parent)
+
+
+def _create_parents(directory: Path) -> None:
+    missing: list[Path] = []
+    current = directory
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+    for path in reversed(missing):
+        path.mkdir()
+        fsync_directory(path.parent)

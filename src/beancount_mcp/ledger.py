@@ -14,6 +14,7 @@ from beancount import loader
 from beancount.core.data import BeancountError, Directive
 
 from beancount_mcp.config import Config
+from beancount_mcp.multifile import transaction_dir
 
 
 class LedgerError(Exception):
@@ -115,6 +116,7 @@ class LedgerService:
     def load(self) -> LedgerSnapshot:
         """Load the current state of the ledger from disk."""
         ledger_path = self._config.ledger_path
+        _check_pending_transaction(ledger_path)
         if not ledger_path.is_file():
             raise LedgerError(f"Ledger non trovato: {ledger_path}")
 
@@ -132,6 +134,7 @@ class LedgerService:
                 for path in files
             )
             if stable:
+                _check_pending_transaction(ledger_path)
                 return LedgerSnapshot(
                     ledger_path=ledger_path,
                     files=loaded_files,
@@ -151,3 +154,11 @@ class LedgerService:
 def _file_state(path: Path) -> tuple[int, int, int, int, int]:
     stat = path.stat()
     return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
+def _check_pending_transaction(ledger_path: Path) -> None:
+    directory = transaction_dir(ledger_path)
+    if (directory / "journal.json").exists() and not (directory / "committed").exists():
+        raise LedgerError(
+            "Transazione multi-file in corso o da recuperare. Riprova o riavvia il server."
+        )

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from typing import Any
 from beancount.core import account as beancount_account
 from beancount.core import getters
 
+from beancount_mcp.entries import source_lines
 from beancount_mcp.ledger import LedgerSnapshot
 
 TAG_RE = re.compile(r"[A-Za-z0-9\-_/.]+")
@@ -133,7 +133,7 @@ def plan_account_rename(
         lines = text.splitlines(keepends=True)
         rewritten_lines: list[str] = []
         changed = False
-        for line_number, (line, in_string) in enumerate(_source_lines(lines), start=1):
+        for line_number, (line, in_string) in enumerate(source_lines(lines), start=1):
             if in_string:
                 rewritten_lines.append(line)
                 continue
@@ -207,7 +207,7 @@ def _plan_token_rename(
         lines = text.splitlines(keepends=True)
         rewritten_lines: list[str] = []
         changed = False
-        for line_number, (line, in_string) in enumerate(_source_lines(lines), start=1):
+        for line_number, (line, in_string) in enumerate(source_lines(lines), start=1):
             if not in_string and not _line_can_contain_token(line, marker):
                 rewritten_lines.append(line)
                 continue
@@ -390,24 +390,3 @@ def _read_text(path: Path) -> str:
             f"Impossibile leggere {path}: {exc}",
             "Verifica che il file esista e sia leggibile.",
         ) from exc
-
-
-def _source_lines(lines: list[str]) -> Iterator[tuple[str, bool]]:
-    """Track quoted strings across lines; comments cannot open strings."""
-    in_string = False
-    escaped = False
-    for line in lines:
-        starts_in_string = in_string
-        for char in line:
-            if in_string:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == '"':
-                    in_string = False
-            elif char == ";":
-                break
-            elif char == '"':
-                in_string = True
-        yield line, starts_in_string

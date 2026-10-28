@@ -2,6 +2,17 @@
 
 Documento di partenza per l'implementazione · 25 ottobre 2026 · Destinatario: agente di sviluppo
 
+## Stato attuale rispetto alla specifica iniziale
+
+Questa specifica descrive la v0.1 iniziale. Per l'interfaccia corrente fa fede il
+README, in particolare “Complete ledger management”. Le estensioni successive
+includono `find_entries`, `get_entry`, `ledger_config`, `apply_changes` e
+`init_ledger`: batch multi-file con creazione e recovery, gestione esplicita delle
+balance assertion, organizzazione degli include e configurazione con permessi
+separati. Le restrizioni dei tool originali sulle direttive balance/pad restano
+invariate; `apply_changes` permette le balance solo con opt-in e mantiene il pad
+protetto. Configurazione, plugin e bootstrap richiedono flag del server.
+
 ## 1. Obiettivo e contesto
 
 Realizzare un server MCP in Python che permetta a un LLM di **interrogare e modificare in sicurezza** un ledger Beancount. Il server non esegue alcun modello: espone solo tool. La priorità del progetto, in ordine, è:

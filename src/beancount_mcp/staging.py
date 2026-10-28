@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import glob
 import os
 import re
@@ -51,14 +52,29 @@ def validate_staged_tree(
     modifications: Mapping[Path, str],
     before_errors: Iterable[BeancountError],
     normalize_before: Callable[[Issue], Issue] | None = None,
+    *,
+    allow_new_files: bool = False,
+    required_files: Iterable[Path] = (),
 ) -> list[Issue]:
     """Load a staged copy with several modified files and return new issues."""
     with _staged_tree(
         files,
         ledger_path,
         modifications,
+        allow_new_files=allow_new_files,
     ) as (staged_main, path_map):
-        _, errors, _ = loader.load_file(str(staged_main))
+        _, errors, options = loader.load_file(str(staged_main))
+        included = {
+            Path(os.path.realpath(path_map[path]))
+            for path in options.get("include", [])
+            if path in path_map
+        }
+        missing = {Path(os.path.realpath(path)) for path in required_files} - included
+        if missing:
+            raise StagingError(
+                "File obbligatori non inclusi nello stato finale: "
+                + ", ".join(str(path) for path in sorted(missing))
+            )
 
     before = issues_from_errors(before_errors)
     if normalize_before is not None:
@@ -72,6 +88,8 @@ def _staged_tree(
     files: Iterable[Path],
     ledger_path: Path,
     modifications: Mapping[Path, str],
+    *,
+    allow_new_files: bool = False,
 ) -> Iterator[tuple[Path, dict[str, Path]]]:
     with tempfile.TemporaryDirectory(prefix="beancount-mcp-stage-") as temporary:
         root = Path(temporary)
@@ -80,7 +98,10 @@ def _staged_tree(
             Path(os.path.realpath(path)): content for path, content in modifications.items()
         }
         applied: set[Path] = set()
-        for source in files:
+        sources = set(files)
+        if allow_new_files:
+            sources.update(modifications)
+        for source in sorted(sources):
             source_real = Path(os.path.realpath(source))
             staged = _staged_path(root, source)
             staged.parent.mkdir(parents=True, exist_ok=True)
@@ -88,7 +109,7 @@ def _staged_tree(
             content = by_real_path.get(source_real)
             if content is not None:
                 applied.add(source_real)
-            _stage_file(source, staged, root, ledger_path, content)
+            _stage_file(source, staged, root, ledger_path, content, sources)
         missing = set(by_real_path) - applied
         if missing:
             paths = ", ".join(str(path) for path in sorted(missing, key=str))
@@ -102,6 +123,7 @@ def _stage_file(
     root: Path,
     ledger_path: Path,
     content: str | None,
+    planned_paths: Iterable[Path] = (),
 ) -> None:
     if content is None:
         data = source.read_bytes()
@@ -112,18 +134,24 @@ def _stage_file(
             return
     else:
         text = content
-    text = _rewrite_absolute_includes(text, root)
+    text = _rewrite_absolute_includes(text, root, planned_paths)
     text = _rewrite_document_paths(text, source, ledger_path)
     target.write_text(text, encoding="utf-8", newline="")
 
 
-def _rewrite_absolute_includes(text: str, root: Path) -> str:
+def _rewrite_absolute_includes(
+    text: str,
+    root: Path,
+    planned_paths: Iterable[Path] = (),
+) -> str:
     def replace(match: re.Match[str]) -> str:
         pattern = os.path.expanduser(match.group(2))
         if not os.path.isabs(pattern):
             return match.group(0)
         expanded = os.path.abspath(pattern)
-        if not glob.glob(expanded, recursive=True):
+        if not glob.glob(expanded, recursive=True) and not any(
+            fnmatch.fnmatchcase(str(path), expanded) for path in planned_paths
+        ):
             return match.group(0)
         staged = _staged_path(root, expanded)
         return f"{match.group(1)}{staged}{match.group(3)}"

@@ -33,6 +33,9 @@ class Config:
     port: int = DEFAULT_PORT
     http_path: str = DEFAULT_HTTP_PATH
     verbose: bool = False
+    allow_config_changes: bool = False
+    allow_plugin_changes: bool = False
+    allow_init: bool = False
 
 
 def default_ledger_path() -> Path:
@@ -67,6 +70,9 @@ def build_config(
     port: int = DEFAULT_PORT,
     http_path: str = DEFAULT_HTTP_PATH,
     verbose: bool = False,
+    allow_config_changes: bool = False,
+    allow_plugin_changes: bool = False,
+    allow_init: bool = False,
     env: Mapping[str, str] | None = None,
 ) -> Config:
     """Build and validate the server configuration."""
@@ -99,4 +105,7 @@ def build_config(
         port=port,
         http_path=http_path,
         verbose=verbose,
+        allow_config_changes=allow_config_changes,
+        allow_plugin_changes=allow_plugin_changes,
+        allow_init=allow_init,
     )

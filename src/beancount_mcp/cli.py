@@ -86,7 +86,22 @@ def _run_server(argv: Sequence[str]) -> int:
     parser.add_argument(
         "--allow-edit-outside-inbox",
         action="store_true",
-        help="Allow edit/delete on included files outside the inbox.",
+        help="Allow edits, batch appends and file organization outside the inbox.",
+    )
+    parser.add_argument(
+        "--allow-config-changes",
+        action="store_true",
+        help="Allow explicit ledger option changes through MCP.",
+    )
+    parser.add_argument(
+        "--allow-plugin-changes",
+        action="store_true",
+        help="Allow plugin configuration changes (executes Python plugins).",
+    )
+    parser.add_argument(
+        "--allow-init",
+        action="store_true",
+        help="Allow MCP initialization of the configured missing ledger.",
     )
     parser.add_argument(
         "--query-limit",
@@ -141,6 +156,9 @@ def _run_server(argv: Sequence[str]) -> int:
             port=args.port,
             http_path=args.http_path,
             verbose=args.verbose,
+            allow_config_changes=args.allow_config_changes,
+            allow_plugin_changes=args.allow_plugin_changes,
+            allow_init=args.allow_init,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -150,6 +168,8 @@ def _run_server(argv: Sequence[str]) -> int:
         f"ledger={config.ledger_path} inbox={config.inbox_path} "
         f"read_only={config.read_only} "
         f"allow_edit_outside_inbox={config.allow_edit_outside_inbox} "
+        f"allow_config_changes={config.allow_config_changes} "
+        f"allow_plugin_changes={config.allow_plugin_changes} allow_init={config.allow_init} "
         f"query_limit={config.query_limit} transport={config.transport} "
         f"host={config.host} port={config.port} http_path={config.http_path} "
         f"verbose={config.verbose}",
@@ -166,7 +186,7 @@ def _run_server(argv: Sequence[str]) -> int:
             file=sys.stderr,
         )
 
-    if not config.ledger_path.is_file():
+    if not config.ledger_path.is_file() and not config.allow_init:
         log_event(
             f"startup: ledger not found: {config.ledger_path}",
             verbose=config.verbose,
