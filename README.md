@@ -433,6 +433,62 @@ Adapt the shape to your client. Clients that support the modern MCP revision
 should use `2026-07-28`; older clients are still served through the stateless
 legacy path.
 
+### Docker
+
+The image is intended for local use. It runs the HTTP transport, binds to
+`0.0.0.0` inside the container, and expects the ledger directory at `/ledger`
+with a `main.bean` file.
+
+Build the image:
+
+```bash
+docker build -t beancount-mcp:local .
+```
+
+Run it with a host ledger directory mounted read-write:
+
+```bash
+docker run --rm -p 127.0.0.1:8000:8000 \
+  -v "/absolute/path/to/ledger:/ledger" \
+  -u "$(id -u):$(id -g)" \
+  beancount-mcp:local
+```
+
+The MCP endpoint is `http://127.0.0.1:8000/mcp`. The `-u` mapping lets the
+container write the inbox with the host user's permissions. The directory must
+already contain `main.bean` and the inbox referenced by it.
+
+Append CLI flags after the image name. For a read-only server:
+
+```bash
+docker run --rm -p 127.0.0.1:8000:8000 \
+  -v "/absolute/path/to/ledger:/ledger" \
+  -u "$(id -u):$(id -g)" \
+  beancount-mcp:local --read-only
+```
+
+To allow edits outside the inbox, append `--allow-edit-outside-inbox`. This is
+an explicit opt-in and is not enabled by default.
+
+With Docker Compose:
+
+```bash
+BEANCOUNT_LEDGER_DIR="/absolute/path/to/ledger" \
+HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
+docker compose up --build
+```
+
+Stop it with:
+
+```bash
+docker compose down
+```
+
+Compose publishes the port only on `127.0.0.1`; do not change it to a public
+interface unless you put an authenticating reverse proxy in front of the
+server. The image has no built-in authentication, TLS, or `/health` endpoint.
+The image is local-only and is not published to a registry.
+
 ## CLI reference
 
 ### Server options
