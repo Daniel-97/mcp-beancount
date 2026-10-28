@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,16 +40,16 @@ def extract_directive_spans(file: Path, text: str) -> list[DirectiveSpan]:
     """Split a Beancount file into directive spans.
 
     A directive starts at a non-empty, non-indented line and ends immediately
-    before the next such line.
+    before the next such line. Lines inside multiline strings are kept together.
     """
     lines = text.splitlines(keepends=True)
     line_offsets: list[int] = []
     starts: list[int] = []
     offset = 0
-    for index, line in enumerate(lines):
+    for index, (line, in_string) in enumerate(source_lines(lines)):
         line_offsets.append(offset)
         content = line.rstrip("\r\n")
-        if content.strip() and not content[0].isspace():
+        if not in_string and content.strip() and not content[0].isspace():
             starts.append(index)
         offset += len(line)
 
@@ -114,3 +116,39 @@ def replace_span(text: str, span: DirectiveSpan, new_text: str) -> str:
 def delete_span(text: str, span: DirectiveSpan) -> str:
     """Remove a span from its file."""
     return text[: span.start_offset] + text[span.end_offset :]
+
+
+def source_lines(lines: list[str]) -> Iterator[tuple[str, bool]]:
+    """Track quoted strings across lines; comments cannot open strings."""
+    in_string = False
+    escaped = False
+    for line in lines:
+        starts_in_string = in_string
+        # Org-mode headings and other unrecognized top-level text are comments
+        # in Beancount; unmatched quotes there cannot open a multiline string.
+        if (
+            not in_string
+            and line
+            and not line[0].isspace()
+            and re.match(
+                r"(?:\d{4}-\d{2}-\d{2}\s|option\b|include\b|plugin\b|"
+                r"pushtag\b|poptag\b|pushmeta\b|popmeta\b)",
+                line,
+            )
+            is None
+        ):
+            yield line, False
+            continue
+        for char in line:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+            elif char == ";":
+                break
+            elif char == '"':
+                in_string = True
+        yield line, starts_in_string

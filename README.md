@@ -49,9 +49,9 @@ Every write follows the same principles:
 - **Stable entry IDs.** Edits and deletes use an `entry_id` containing the file,
   starting line, and a content hash. If the entry changed in the meantime, the
   server returns `ENTRY_CHANGED` with the current text.
-- **Journaled multi-file renames.** Account, tag, and link renames are applied as
-  one journaled operation. If a write fails, files are restored; a pending journal
-  is recovered on the next writable startup. Recovery checks all backups and
+- **Journaled multi-file changes.** Account, tag, and link renames are applied as
+  one journaled operation, as are generic batches. If a write fails, files are
+  restored; a pending journal is recovered on the next writable startup. Recovery checks all backups and
   target hashes before restoring anything. External edits or deleted targets
   stop recovery and preserve the journal for manual resolution.
 - **Read-only mode.** Starting with `--read-only` removes the write tools from the
@@ -81,13 +81,19 @@ environment. The `beancount-mcp` executable is also available through
 
 ## Tools
 
-The server exposes eleven tools. All responses are JSON objects with an `ok`
+The server exposes fifteen tools by default, plus `init_ledger` when started with
+`--allow-init`. All responses are JSON objects with an `ok`
 field; successful responses contain the data described below, and failures
 contain a structured `error` object.
 
 | Tool | Purpose |
 | --- | --- |
 | `ledger_info` | Inspect files, accounts, version, errors, and inbox status. |
+| `find_entries` | Page through all dated source directives, with text and IDs. |
+| `get_entry` | Read a dated directive and verify its ID. |
+| `ledger_config` | Inspect option/include/plugin statements and capability flags. |
+| `apply_changes` | Apply a validated batch of entry, file, and configuration changes. |
+| `init_ledger` | Initialize the configured missing ledger (requires `--allow-init`). |
 | `query` | Run read-only BQL queries with pagination. |
 | `validate` | Run full Beancount validation. |
 | `find_transactions` | Find transactions and return their text and `entry_id`. |
@@ -98,6 +104,102 @@ contain a structured `error` object.
 | `rename_account` | Rename an account across included files. |
 | `rename_tag` | Rename a tag across included files. |
 | `rename_link` | Rename a link across included files. |
+
+### Complete ledger management
+
+The original transaction tools keep their existing safety rules. Use the generic
+source tools and `apply_changes` to manage other directives or changes that must
+be valid together.
+
+`find_entries` returns original source text and `entry_id` for `transaction`,
+`open`, `close`, `balance`, `pad`, `commodity`, `price`, `note`, `document`, `event`,
+`query`, and `custom`. It excludes directives synthesized by plugins or padding.
+Optional filters are `types` (a list of lowercase names), `account` (including
+subaccounts), `file` (absolute or ledger-relative), `date_from`, `date_to`, and
+`text_contains`. Pages use deterministic file/line order, `limit` (1–500, default
+100), `offset`, and `next_offset`. Pass the first page's `ledger_version` as
+`expected_ledger_version` on subsequent pages to detect concurrent changes.
+`get_entry(entry_id)` reads one of these directives and rejects stale hashes.
+
+`ledger_config()` returns source option/include/plugin statements, file/line/text,
+capability flags, and `ledger_version`. Configuration statements use the dedicated
+batch operations below rather than dated entry IDs.
+
+`apply_changes(changes, expected_ledger_version, dry_run=false,
+allow_balance_changes=false)` supports 1–500 operations. The expected version is
+required. Every entry ID refers to the original snapshot: multiple edits in one
+file do not invalidate later IDs, but targeting the same entry twice is rejected.
+The final tree is validated once, so a split/merge can preserve balance assertions
+without requiring each intermediate edit to be valid. `dry_run` returns complete
+before/after file previews and does not create files or directories.
+
+| `op` | Fields besides `op` | Behavior |
+| --- | --- | --- |
+| `append` | `text`, optional `file` | Append dated directives; default target is inbox. |
+| `replace` | `entry_id`, `text` | Replace any unprotected dated directive with exactly one directive. |
+| `delete` | `entry_id` | Delete an unprotected dated directive, including prices and account directives. |
+| `move` | `entry_id`, `file` | Move original text to an included destination or a file created earlier in this batch. |
+| `create_file` | `file`, optional `text` | Create a new `.bean`/`.beancount` file; parent directories are created on commit. |
+| `add_include` | `file`, optional `source_file` | Include a new or existing accounting file; default source is main. |
+| `remove_include` | `pattern`, optional `source_file` | Remove the exact include string; preserve the physical file. |
+| `set_option` | `name`, `values`, optional `file` | Replace that file's occurrences of one option; `values` is a string list or `null` to remove it; default file is main. |
+| `set_plugins` | `plugins`, optional `file` | Replace that file's plugin statements with objects `{name, config?}`; default file is main. |
+
+All operations reject unknown fields. File paths are absolute or ledger-relative.
+Existing edit targets must be included. File organization and writes outside the
+inbox require `--allow-edit-outside-inbox`. New files must be included in the
+final tree, and the configured inbox cannot be detached while it is included.
+New includes may attach existing files containing dated accounting directives;
+attaching files containing options, plugins, or nested includes is rejected.
+Paths outside the ledger directory and paths reserved for the server journal/lock
+are rejected (the explicitly configured inbox retains its existing authorization).
+Removing an include leaves its file on disk. File deletion is not exposed.
+
+Option changes require `--allow-config-changes`. Plugin changes independently
+require `--allow-plugin-changes`: plugin code executes during staged validation
+as well as normal loads. These flags come from server startup and cannot be
+activated by tool parameters. Plugins must already be available to the Python
+runtime; the server does not install packages or write Python code.
+
+Adding, replacing, or deleting a `balance` requires `allow_balance_changes=true`.
+The amount must still validate: this opt-in does not bypass accounting checks.
+Existing assertions can be moved unchanged. Creating/modifying/deleting `pad`
+remains blocked; no automatic padding is introduced. The legacy transaction tools
+continue to reject `balance` and `pad` changes.
+
+Moves reject files using `pushtag`/`pushmeta` scopes, even balanced scopes, to
+avoid silently changing inherited tags/metadata. Document moves make the document
+path absolute to preserve the referenced file across directories. New files are
+written before source/include edits. MCP reads reject uncommitted journals, so
+they do not expose intermediate multi-file states; external readers do not share
+that guarantee. Interrupted creation rolls back new files while preserving
+unknown external versions. Empty parent directories can remain after a rollback.
+
+Batch appends do not have `add_transactions`' idempotency key. After an uncertain
+response, read the ledger again and inspect the expected changes before retrying.
+The mandatory expected version prevents blindly repeating an already committed
+batch with the original version.
+
+For example, archive an inbox transaction using its ID and the read version:
+
+```json
+[
+  {"op": "create_file", "file": "2026/journal.bean"},
+  {"op": "add_include", "file": "2026/journal.bean"},
+  {"op": "move", "entry_id": {"file": "/ledger/inbox.bean", "line": 1, "hash": "..."}, "file": "2026/journal.bean"}
+]
+```
+
+To bootstrap through MCP, start the configured missing ledger with:
+
+```bash
+uv run beancount-mcp --allow-init /path/to/new/main.bean
+```
+
+Then call `init_ledger(currency="EUR", dry_run=true)` to preview, followed by
+`init_ledger(currency="EUR")`. Only the configured main file and inbox are created,
+in one journaled operation. Existing targets are refused, including empty files.
+The tool cannot select an arbitrary destination, and is absent in read-only mode.
 
 ### `ledger_info`
 
@@ -523,7 +625,10 @@ The image is local-only and is not published to a registry.
 | `ledger` | `BEANCOUNT_MCP_LEDGER`, then `~/.beancount-mcp/ledger/main.bean` | Path to the main ledger file. |
 | `--inbox` | `inbox.bean` | Inbox path, relative to the ledger directory unless absolute. |
 | `--read-only` | `false` | Do not expose write tools. |
-| `--allow-edit-outside-inbox` | `false` | Allow edit, delete, and rename in included files outside the inbox. |
+| `--allow-edit-outside-inbox` | `false` | Allow edits, batch appends, and file organization outside the inbox. |
+| `--allow-config-changes` | `false` | Allow explicit option changes through `apply_changes`. |
+| `--allow-plugin-changes` | `false` | Allow plugin statement changes and their execution during validation. |
+| `--allow-init` | `false` | Permit MCP startup on a missing ledger and expose `init_ledger`. |
 | `--query-limit` | `100` | Default row limit for `query`; must be between 1 and 1000. |
 | `--transport` | `http` | `http` or `stdio`. |
 | `--host` | `127.0.0.1` | HTTP bind host. |
@@ -635,12 +740,12 @@ modify your own ledger.
 
 Implemented:
 
-- the eleven tools listed above;
+- the tools listed above, including paginated source reads and generic batches;
 - HTTP and stdio transports;
-- `init` for creating a new ledger;
+- CLI `init` and opt-in MCP `init_ledger` for creating a new ledger;
 - read-only mode and inbox-scoped writes;
 - atomic writes, locking, validation before/after, entry IDs, and multi-file
-  rename journaling/recovery.
+  batch/rename journaling and recovery.
 
 Not implemented yet:
 

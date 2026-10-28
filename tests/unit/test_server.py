@@ -54,6 +54,10 @@ def testCreateServer_shouldExposeAllTools_whenWritable(tmp_path: Path) -> None:
         "ledger_info",
         "query",
         "validate",
+        "find_entries",
+        "get_entry",
+        "ledger_config",
+        "apply_changes",
         "add_transactions",
         "open_account",
         "edit_transaction",
@@ -78,6 +82,9 @@ def testCreateServer_shouldExposeOnlyReadTools_whenReadOnly(tmp_path: Path) -> N
         "ledger_info",
         "query",
         "validate",
+        "find_entries",
+        "get_entry",
+        "ledger_config",
         "find_transactions",
     ]
 

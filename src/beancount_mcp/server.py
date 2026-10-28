@@ -13,6 +13,7 @@ from typing import Any, ParamSpec, TypeVar
 from mcp.server import MCPServer
 
 from beancount_mcp import __version__
+from beancount_mcp.change_service import apply_changes as apply_changes_service
 from beancount_mcp.config import Config
 from beancount_mcp.entry_service import (
     delete_transaction as delete_transaction_service,
@@ -28,6 +29,15 @@ from beancount_mcp.multifile import (
     transaction_dir,
 )
 from beancount_mcp.shutdown import GracefulShutdownMiddleware, ShutdownController
+from beancount_mcp.source_service import (
+    find_entries as find_entries_service,
+)
+from beancount_mcp.source_service import (
+    get_entry as get_entry_service,
+)
+from beancount_mcp.source_service import (
+    ledger_config as ledger_config_service,
+)
 from beancount_mcp.tools.add_transactions import add_transactions as add_transactions_tool
 from beancount_mcp.tools.find_transactions import (
     DEFAULT_FIND_LIMIT,
@@ -35,6 +45,7 @@ from beancount_mcp.tools.find_transactions import (
 from beancount_mcp.tools.find_transactions import (
     find_transactions as find_transactions_tool,
 )
+from beancount_mcp.tools.init_ledger import init_ledger as init_ledger_service
 from beancount_mcp.tools.ledger_info import build_ledger_info
 from beancount_mcp.tools.open_account import open_account as open_account_tool
 from beancount_mcp.tools.query import run_query
@@ -241,7 +252,117 @@ def create_server(
         """
         return build_validation(service)
 
+    @tool
+    def find_entries(
+        types: list[str] | None = None,
+        account: str | None = None,
+        file: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        text_contains: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        expected_ledger_version: str | None = None,
+    ) -> dict[str, Any]:
+        """Find original source directives of every dated type with text and entry_id.
+
+        types uses lowercase names: transaction, open, close, balance, pad,
+        commodity, price, note, document, event, query, custom. Filters combine
+        with AND. account includes subaccounts; file is absolute or ledger-relative.
+        Pages use stable file/line order, limit 1–500, offset and next_offset.
+        Pass the first page's ledger_version as expected_ledger_version on later
+        pages to detect changes. Plugin-generated entries are not source entries.
+        Example: find_entries(types=["price"], limit=50, offset=0).
+        """
+        return find_entries_service(
+            service,
+            types=types,
+            account=account,
+            file=file,
+            date_from=date_from,
+            date_to=date_to,
+            text_contains=text_contains,
+            limit=limit,
+            offset=offset,
+            expected_ledger_version=expected_ledger_version,
+        )
+
+    @tool
+    def get_entry(entry_id: dict[str, Any]) -> dict[str, Any]:
+        """Read a source directive by {file, line, hash}; reject stale identifiers.
+
+        Use find_entries to obtain IDs for prices, commodities, balance assertions,
+        account directives and transactions. Returns original text and ledger_version.
+        """
+        return get_entry_service(service, entry_id)
+
+    @tool
+    def ledger_config() -> dict[str, Any]:
+        """Inspect source option/include/plugin statements and server capability flags.
+
+        Returns source file/line/text and the ledger_version needed for apply_changes.
+        Configuration statements are managed by dedicated batch operations, not by
+        treating configuration as accounting entries.
+        """
+        return ledger_config_service(service)
+
     if not config.read_only:
+
+        @tool
+        def apply_changes(
+            changes: list[dict[str, Any]],
+            expected_ledger_version: str,
+            dry_run: bool = False,
+            allow_balance_changes: bool = False,
+        ) -> dict[str, Any]:
+            """Apply 1–500 edits as one journaled batch, validating only the final tree.
+
+            Every object requires op; supported shapes (no extra fields):
+            append: {op, text, file?}; default file is inbox.
+            replace: {op, entry_id, text}; text contains exactly one directive.
+            delete: {op, entry_id}; all dated types except protected pad.
+            move: {op, entry_id, file}; destination is included or created in batch.
+            create_file: {op, file, text?}; new .bean/.beancount, must be included.
+            add_include: {op, file, source_file?}; default source is main.
+            remove_include: {op, pattern, source_file?}; pattern is the exact include string.
+            set_option: {op, name, values, file?}; values is a string list or null
+            to remove the option; requires server --allow-config-changes.
+            set_plugins: {op, plugins, file?}; plugins replaces that file's plugin
+            list, with objects {name, config?}; requires --allow-plugin-changes.
+
+            Paths are ledger-relative or absolute. Existing files must be included;
+            file organization requires --allow-edit-outside-inbox. Create a file
+            before referencing it. IDs always refer to the original version, so
+            editing the same entry twice is rejected. dry_run returns before/after
+            file previews without writes. Pass allow_balance_changes=true only to
+            explicitly add/change/delete observed balance assertions. pad creation,
+            modification and deletion are rejected. Moves reject files using scoped
+            tags/metadata. Document paths are made absolute during moves so their
+            referenced files remain the same.
+            Retry batches by re-reading after an uncertain result; appends here do
+            not have the idempotency_key of add_transactions.
+
+            Example: [{"op":"delete","entry_id":old_id},
+            {"op":"append","text":"...two replacement transactions..."}].
+            """
+            return apply_changes_service(
+                service,
+                changes,
+                expected_ledger_version,
+                dry_run=dry_run,
+                allow_balance_changes=allow_balance_changes,
+            )
+
+        if config.allow_init:
+
+            @tool
+            def init_ledger(currency: str, dry_run: bool = False) -> dict[str, Any]:
+                """Initialize only the configured ledger/inbox; never overwrite existing files.
+
+                Start a missing ledger with --allow-init, then call init_ledger("EUR").
+                dry_run previews the files. Uses one journal for both new files.
+                """
+                return init_ledger_service(config, currency, dry_run=dry_run)
 
         @tool
         def add_transactions(
