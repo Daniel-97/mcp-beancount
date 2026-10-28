@@ -180,7 +180,7 @@ def _perform_rename(
             "LOCKED",
             str(exc),
             "Un'altra scrittura è in corso. Riprova tra poco; se il processo è "
-            f"terminato, rimuovi il file di lock {lock}.",
+            f"terminato, riprova: il lock viene rilasciato dal sistema operativo ({lock}).",
         )
     except (OSError, StagingError) as exc:
         return tool_error(

@@ -66,13 +66,13 @@ def copy_fixture(tmp_path: Path, fixtures_dir: Path) -> Callable[[str], LedgerPa
 
 @pytest.fixture
 def snapshot_bytes() -> Callable[[Path], dict[str, bytes]]:
-    """Return a byte-for-byte snapshot of every file under a directory."""
+    """Snapshot user data and journals, excluding the persistent lock inode."""
 
     def snapshot(root: Path) -> dict[str, bytes]:
         return {
             str(path.relative_to(root)): path.read_bytes()
             for path in sorted(root.rglob("*"))
-            if path.is_file()
+            if path.is_file() and not path.name.endswith(".bean.lock")
         }
 
     return snapshot

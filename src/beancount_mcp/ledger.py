@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from beancount import loader
@@ -46,6 +47,7 @@ class LedgerSnapshot:
     options: dict[str, Any]
     version: str
     inbox: InboxStatus
+    contents: Mapping[Path, bytes] = field(default_factory=dict)
 
     @property
     def is_empty(self) -> bool:
@@ -55,10 +57,14 @@ class LedgerSnapshot:
 
 def compute_ledger_version(files: Iterable[Path]) -> str:
     """Compute a deterministic SHA-256 over file paths and contents."""
-    normalized = sorted({Path(os.path.abspath(os.path.expanduser(path))) for path in files})
+    return _version_from_contents({path: path.read_bytes() for path in files})
+
+
+def _version_from_contents(contents: Mapping[Path, bytes]) -> str:
+    normalized = {Path(os.path.abspath(os.path.expanduser(p))): b for p, b in contents.items()}
     digest = hashlib.sha256()
-    for path in normalized:
-        content_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    for path in sorted(normalized):
+        content_hash = hashlib.sha256(normalized[path]).hexdigest()
         digest.update(str(path).encode("utf-8"))
         digest.update(b"\0")
         digest.update(content_hash.encode("ascii"))
@@ -112,18 +118,36 @@ class LedgerService:
         if not ledger_path.is_file():
             raise LedgerError(f"Ledger non trovato: {ledger_path}")
 
-        entries, errors, options = loader.load_file(str(ledger_path))
-        files = tuple(Path(path) for path in options.get("include", [str(ledger_path)]))
-        return LedgerSnapshot(
-            ledger_path=ledger_path,
-            files=files,
-            entries=tuple(entries),
-            errors=tuple(errors),
-            options=dict(options),
-            version=compute_ledger_version(files),
-            inbox=inspect_inbox(
-                self._config.inbox_path,
-                ledger_path,
-                files,
-            ),
+        # Discover includes, then bracket the actual parse with captured bytes
+        # and stat checks. Retry if files or the include graph changed.
+        _, _, discovery = loader.load_file(str(ledger_path))
+        files = tuple(Path(path) for path in discovery.get("include", [str(ledger_path)]))
+        for _ in range(3):
+            before = {path: _file_state(path) for path in files}
+            contents = {path: path.read_bytes() for path in files}
+            entries, errors, options = loader.load_file(str(ledger_path))
+            loaded_files = tuple(Path(path) for path in options.get("include", [str(ledger_path)]))
+            stable = set(loaded_files) == set(files) and all(
+                _file_state(path) == before[path] and path.read_bytes() == contents[path]
+                for path in files
+            )
+            if stable:
+                return LedgerSnapshot(
+                    ledger_path=ledger_path,
+                    files=loaded_files,
+                    entries=tuple(entries),
+                    errors=tuple(errors),
+                    options=dict(options),
+                    version=_version_from_contents(contents),
+                    inbox=inspect_inbox(self._config.inbox_path, ledger_path, loaded_files),
+                    contents=MappingProxyType(contents),
+                )
+            files = loaded_files
+        raise LedgerError(
+            "Il ledger cambia durante la lettura. Riprova quando i file sono stabili."
         )
+
+
+def _file_state(path: Path) -> tuple[int, int, int, int, int]:
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns

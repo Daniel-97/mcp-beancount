@@ -14,11 +14,13 @@ def add_transactions(
     *,
     dry_run: bool = False,
     expected_ledger_version: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Append validated directives to the inbox."""
     return write_inbox_text(
         service,
         text,
         expected_ledger_version=expected_ledger_version,
+        idempotency_key=idempotency_key,
         dry_run=dry_run,
     )

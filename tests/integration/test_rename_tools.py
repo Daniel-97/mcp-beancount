@@ -16,7 +16,7 @@ from beancount_mcp.multifile import transaction_dir
 from beancount_mcp.server import create_server
 from beancount_mcp.tools.rename import rename_account, rename_link, rename_tag
 from beancount_mcp.tools.validate import build_validation
-from beancount_mcp.writer import lock_path_for
+from beancount_mcp.writer import write_lock
 
 
 def _service(ledger: Any, **options: Any) -> LedgerService:
@@ -675,15 +675,9 @@ def testCreateServer_shouldRefuseStartup_whenRecoveryLockIsHeld(
     modified = original + '\n2026-01-02 note Assets:Cash "pending"\n'
     ledger.inbox.write_text(modified, encoding="utf-8")
     directory = _pending_inbox_journal(ledger, original, modified)
-    lock = lock_path_for(ledger.main)
-    lock.write_text("held\n", encoding="utf-8")
-
     # When
-    try:
-        with pytest.raises(RuntimeError, match="lock") as raised:
-            create_server(build_config(str(ledger.main)))
-    finally:
-        lock.unlink(missing_ok=True)
+    with write_lock(ledger.main), pytest.raises(RuntimeError, match="lock") as raised:
+        create_server(build_config(str(ledger.main)))
 
     # Then
     assert "lock" in str(raised.value)

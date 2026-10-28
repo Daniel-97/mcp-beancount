@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from datetime import date as date_type
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -75,7 +76,7 @@ def find_transactions(
         return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
 
     try:
-        spans_by_file = _spans_by_file(snapshot.files)
+        spans_by_file = _spans_by_file(snapshot.contents)
     except LedgerError as exc:
         return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
 
@@ -113,12 +114,12 @@ def find_transactions(
 
 
 def _spans_by_file(
-    files: tuple[Path, ...],
+    contents: Mapping[Path, bytes],
 ) -> dict[str, dict[int, DirectiveSpan]]:
     spans_by_file: dict[str, dict[int, DirectiveSpan]] = {}
-    for file in files:
+    for file, content in contents.items():
         try:
-            text = file.read_bytes().decode("utf-8")
+            text = content.decode("utf-8")
         except (OSError, UnicodeDecodeError) as exc:
             raise LedgerError(f"Impossibile leggere {file}: {exc}") from exc
         spans = {span.entry_id.line: span for span in extract_directive_spans(file, text)}
