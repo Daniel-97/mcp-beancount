@@ -437,7 +437,8 @@ legacy path.
 
 The image is intended for local use. It runs the HTTP transport, binds to
 `0.0.0.0` inside the container, and expects the ledger directory at `/ledger`
-with a `main.bean` file.
+with a `main.bean` file. Docker Engine or Docker Desktop must be running before
+using these commands.
 
 Build the image:
 
@@ -456,7 +457,8 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 
 The MCP endpoint is `http://127.0.0.1:8000/mcp`. The `-u` mapping lets the
 container write the inbox with the host user's permissions. The directory must
-already contain `main.bean` and the inbox referenced by it.
+contain `main.bean`. The inbox is required only for write operations; for
+read-only use it may be absent or not included.
 
 Append CLI flags after the image name. For a read-only server:
 
@@ -477,6 +479,10 @@ BEANCOUNT_LEDGER_DIR="/absolute/path/to/ledger" \
 HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
 docker compose up --build
 ```
+
+`BEANCOUNT_LEDGER_DIR` is required and must point to the directory containing
+`main.bean`. `HOST_UID` and `HOST_GID` should match the host user so the
+container can write the inbox.
 
 Stop it with:
 
