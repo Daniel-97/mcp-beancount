@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from beancount_mcp.writer import fsync_directory
+
 _CURRENCY_RE = re.compile(r"[A-Z][A-Z0-9'._-]{0,22}[A-Z0-9]")
 
 
@@ -75,7 +77,9 @@ def create_ledger(ledger_path: Path, currency: str, *, today: date | None = None
             mode=_target_mode(resolved_ledger),
         )
     except OSError as exc:
-        if inbox_created:
+        # A directory fsync can fail after the main file was replaced. Keep
+        # its included inbox in that case so a retry/manual check sees a valid tree.
+        if inbox_created and (not resolved_ledger.exists() or resolved_ledger.stat().st_size == 0):
             inbox_path.unlink(missing_ok=True)
         raise InitError(f"Impossibile creare il ledger in {resolved_ledger.parent}: {exc}") from exc
 
@@ -125,6 +129,7 @@ def _write_atomic(path: Path, content: str, *, mode: int) -> None:
             os.fsync(handle.fileno())
         os.chmod(temporary_path, mode)
         os.replace(temporary_path, path)
+        fsync_directory(path.parent)
     except Exception:
         temporary_path.unlink(missing_ok=True)
         raise

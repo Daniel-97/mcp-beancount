@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from beancount_mcp.writer import atomic_write
+from beancount_mcp.writer import atomic_write, fsync_directory
 
 _COMMITTED_MARKER = "committed"
 
@@ -40,7 +40,7 @@ def commit_files(
     directory = transaction_dir(ledger_path)
     if directory.exists():
         if (directory / _COMMITTED_MARKER).exists() or not (directory / "journal.json").exists():
-            shutil.rmtree(directory, ignore_errors=True)
+            _remove_transaction_directory(directory)
         else:
             raise TransactionError(
                 "Transazione pendente: riavvia il server per eseguire il recovery "
@@ -52,6 +52,7 @@ def commit_files(
         directory.mkdir(mode=0o700, parents=False, exist_ok=False)
         backup_dir = directory / "backup"
         backup_dir.mkdir(mode=0o700)
+        fsync_directory(ledger_path.parent)
 
         for index, (path, content) in enumerate(modifications.items()):
             if not path.is_file():
@@ -68,13 +69,14 @@ def commit_files(
                 }
             )
 
+        fsync_directory(backup_dir)
         journal = {"version": 2, "files": entries}
         _write_atomic_fsync(
             directory / "journal.json",
             json.dumps(journal, ensure_ascii=False, indent=2),
             mode=0o600,
         )
-        _fsync_dir(directory)
+        fsync_directory(directory)
 
         new_hashes = {str(path): _sha256(content) for path, content in modifications.items()}
         for path, content in modifications.items():
@@ -83,17 +85,21 @@ def commit_files(
                 raise TransactionError(f"Verifica della scrittura fallita per {path}.")
 
         _write_fsync(directory / _COMMITTED_MARKER, "committed\n", mode=0o600)
-        _fsync_dir(directory)
+        fsync_directory(directory)
     except Exception as exc:
+        marker = directory / _COMMITTED_MARKER
+        if marker.exists():
+            marker.unlink()
+            fsync_directory(directory)
         restored = _restore_backups(entries)
         if restored:
-            shutil.rmtree(directory, ignore_errors=True)
+            _remove_transaction_directory(directory)
             raise TransactionError(f"Transazione annullata e file ripristinati: {exc}") from exc
         raise TransactionError(
             f"Transazione fallita e ripristino incompleto; il journal resta per il recovery: {exc}"
         ) from exc
 
-    shutil.rmtree(directory, ignore_errors=True)
+    _remove_transaction_directory(directory)
 
 
 def recover_pending_transaction(ledger_path: Path) -> bool:
@@ -107,14 +113,14 @@ def recover_pending_transaction(ledger_path: Path) -> bool:
         return False
 
     if (directory / _COMMITTED_MARKER).exists():
-        shutil.rmtree(directory, ignore_errors=True)
+        _remove_transaction_directory(directory)
         return True
 
     journal_path = directory / "journal.json"
     if not journal_path.exists():
         # The process died before the journal was written, so no target file
         # was modified yet.
-        shutil.rmtree(directory, ignore_errors=True)
+        _remove_transaction_directory(directory)
         return True
 
     try:
@@ -130,33 +136,43 @@ def recover_pending_transaction(ledger_path: Path) -> bool:
 
     if not _restore_backups(entries):
         raise TransactionError(
-            "Recovery incompleto: alcuni backup non sono stati ripristinati. "
+            "Recovery incompleto: backup non valido o file modificato esternamente. "
             f"Journal: {journal_path}"
         )
 
-    shutil.rmtree(directory, ignore_errors=True)
+    _remove_transaction_directory(directory)
     return True
 
 
 def _restore_backups(entries: list[dict[str, Any]]) -> bool:
-    restored = True
-    for entry in entries:
-        try:
+    # Preflight the whole journal before touching any file. A third version
+    # belongs to an external writer and must never be overwritten by recovery.
+    planned: list[tuple[Path, str]] = []
+    try:
+        for entry in entries:
             path = Path(str(entry["path"]))
             backup = Path(str(entry["backup"]))
             expected = str(entry["original_sha256"])
             original = _read_text(backup)
-            if _sha256(original) != expected:
-                restored = False
+            if _sha256(original) != expected or not path.is_file():
+                return False
+            current_hash = _sha256(_read_text(path))
+            if current_hash == expected:
                 continue
-            if path.exists() and _sha256(_read_text(path)) == expected:
-                continue
+            if current_hash != str(entry["new_sha256"]):
+                return False
+            planned.append((path, original))
+    except Exception:
+        return False
+
+    try:
+        for path, original in planned:
             atomic_write(path, original)
-            if not path.exists() or _sha256(_read_text(path)) != expected:
-                restored = False
-        except Exception:
-            restored = False
-    return restored
+            if _sha256(_read_text(path)) != _sha256(original):
+                return False
+    except Exception:
+        return False
+    return True
 
 
 def _write_fsync(path: Path, content: str, *, mode: int = 0o600) -> None:
@@ -195,22 +211,10 @@ def _write_atomic_fsync(path: Path, content: str, *, mode: int = 0o600) -> None:
             os.fsync(handle.fileno())
         os.chmod(temporary_path, mode)
         os.replace(temporary_path, path)
+        fsync_directory(path.parent)
     except Exception:
         temporary_path.unlink(missing_ok=True)
         raise
-
-
-def _fsync_dir(path: Path) -> None:
-    try:
-        descriptor = os.open(path, os.O_RDONLY)
-    except OSError:
-        return
-    try:
-        os.fsync(descriptor)
-    except OSError:
-        pass
-    finally:
-        os.close(descriptor)
 
 
 def _read_text(path: Path) -> str:
@@ -219,3 +223,12 @@ def _read_text(path: Path) -> str:
 
 def _sha256(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _remove_transaction_directory(directory: Path) -> None:
+    # Once journal removal is durable, a crash during recursive cleanup cannot
+    # turn a committed operation into a rollback with partially deleted backups.
+    (directory / "journal.json").unlink(missing_ok=True)
+    fsync_directory(directory)
+    shutil.rmtree(directory)
+    fsync_directory(directory.parent)

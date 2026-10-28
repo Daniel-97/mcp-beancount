@@ -36,16 +36,24 @@ Every write follows the same principles:
   inbox file (`inbox.bean` next to the ledger by default). Other included files are
   read-only unless the server is started with `--allow-edit-outside-inbox`.
 - **Atomic writes.** Files are written through a temporary file in the same
-  directory, followed by `fsync` and `os.replace`.
-- **One writer at a time.** A lock serializes writes, including across processes.
+  directory, followed by `fsync`, `os.replace`, and a parent-directory `fsync`.
+- **One writer at a time.** A POSIX advisory lock serializes cooperating server
+  processes and is released by the OS after a crash. The `.lock` file remains
+  on disk; its presence does not mean it is held. Never delete it while servers
+  are running. External editors do not participate in this lock.
 - **Version checks.** `add_transactions` can receive `expected_ledger_version` to
   refuse a write when the ledger changed after it was read.
+- **Consistent reads.** Parsing is checked against captured file bytes and file
+  identity/timestamps. Reads retry up to three times if files change; transaction
+  text and IDs come from the captured bytes.
 - **Stable entry IDs.** Edits and deletes use an `entry_id` containing the file,
   starting line, and a content hash. If the entry changed in the meantime, the
   server returns `ENTRY_CHANGED` with the current text.
 - **Journaled multi-file renames.** Account, tag, and link renames are applied as
   one journaled operation. If a write fails, files are restored; a pending journal
-  is recovered on the next writable startup.
+  is recovered on the next writable startup. Recovery checks all backups and
+  target hashes before restoring anything. External edits or deleted targets
+  stop recovery and preserve the journal for manual resolution.
 - **Read-only mode.** Starting with `--read-only` removes the write tools from the
   MCP server.
 - **Structured errors.** Every response contains `ok`; failures include a stable
@@ -53,7 +61,7 @@ Every write follows the same principles:
 
 ## Requirements
 
-- Python 3.11 or newer
+- Python 3.11 or newer on Linux or macOS (writes use POSIX `flock`)
 - [uv](https://docs.astral.sh/uv/)
 - The dependencies pinned in `pyproject.toml`: Beancount, Beanquery, and the
   official MCP Python SDK
@@ -178,10 +186,21 @@ Parameters:
   writing;
 - `expected_ledger_version` (string, optional): refuse the write if the ledger
   version changed.
+- `idempotency_key` (string, optional, 1–200 characters, nonblank): a unique key
+  for this append operation; reuse it with the same text when retrying.
 
 The write is atomic, serialized by a lock, and validated before and after. Only
 new errors block the operation. With `dry_run=true`, the response includes the
 text that would be written without modifying any file.
+
+With an `idempotency_key`, the server writes a receipt comment and the directives
+in the same atomic inbox replacement. A retry with the same key and text returns
+`replayed=true` without appending again, including after a restart or with the
+original (now stale) `expected_ledger_version`. Reusing the key with different text
+returns `IDEMPOTENCY_CONFLICT`. A dry run does not reserve the key. Without a key,
+identical appends remain permitted. Receipts are scoped to the configured inbox;
+preserve the `; beancount-mcp-idempotency:` comments when reorganizing files to
+retain retry protection. The response on replay reports the current ledger version.
 
 ```text
 2026-02-01 * "Bar" "Coffee"
@@ -341,8 +360,8 @@ Error response:
 Common error codes include `SYNTAX_ERROR`, `VALIDATION_FAILED`,
 `VERSION_CONFLICT`, `ENTRY_NOT_FOUND`, `ENTRY_CHANGED`,
 `ENTRY_NOT_IN_INBOX`, `PATH_NOT_ALLOWED`, `ACCOUNT_EXISTS`,
-`ACCOUNT_SIMILAR_EXISTS`, `QUERY_ERROR`, `READ_ONLY`, `LOCKED`, and
-`INBOX_NOT_INCLUDED`.
+`ACCOUNT_SIMILAR_EXISTS`, `QUERY_ERROR`, `READ_ONLY`, `LOCKED`,
+`INBOX_NOT_INCLUDED`, and `IDEMPOTENCY_CONFLICT`.
 
 ## Running the server
 
@@ -596,6 +615,19 @@ uv run ruff format --check .
 uv run mypy src tests
 ```
 
+GitHub Actions runs tests and static checks on Linux and macOS with Python 3.11
+and 3.13. Regression tests include a writer process exiting during a transaction
+and startup recovery. Tests verify sync ordering and reported sync failures; they
+do not simulate power loss or certify filesystem/hardware durability.
+
+When upgrading from an older version using lock-file existence, stop all older
+server processes before starting this version; the locking protocols differ.
+
+External programs can still write between the final version check and file
+replacement, or during recovery. Coordinate external editors/importers with the
+server: advisory locks and version checks do not provide transactions against
+non-cooperating writers.
+
 The test suite uses temporary ledger copies for write tests, so it does not
 modify your own ledger.
 
@@ -617,7 +649,7 @@ Not implemented yet:
 - `rename_payee` / bulk narration replacement;
 - `check_duplicates` and `suggest_account`;
 - an MCP prompt with ledger conventions;
-- CI and PyPI publication.
+- PyPI publication.
 
 The server does not provide a web UI, remote storage backends, or automatic bank
 statement import.

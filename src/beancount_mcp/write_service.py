@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from difflib import get_close_matches
@@ -25,9 +26,12 @@ from beancount_mcp.writer import (
     LockError,
     append_text,
     atomic_write,
+    fsync_directory,
     lock_path_for,
     write_lock,
 )
+
+_RECEIPT_PREFIX = "; beancount-mcp-idempotency: "
 
 _FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin|option)\b")
 
@@ -37,6 +41,7 @@ def write_inbox_text(
     text: str,
     *,
     expected_ledger_version: str | None = None,
+    idempotency_key: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Append directives to the inbox after full validation."""
@@ -52,6 +57,7 @@ def write_inbox_text(
             service,
             text,
             expected_ledger_version=expected_ledger_version,
+            idempotency_key=idempotency_key,
             dry_run=True,
         )
 
@@ -61,6 +67,7 @@ def write_inbox_text(
                 service,
                 text,
                 expected_ledger_version=expected_ledger_version,
+                idempotency_key=idempotency_key,
                 dry_run=False,
             )
     except LockError as exc:
@@ -69,7 +76,7 @@ def write_inbox_text(
             "LOCKED",
             str(exc),
             "Un'altra scrittura è in corso. Riprova tra poco; se il processo è "
-            f"terminato, rimuovi il file di lock {lock}.",
+            f"terminato, riprova: il lock viene rilasciato dal sistema operativo ({lock}).",
         )
 
 
@@ -78,6 +85,7 @@ def _write_inbox_text(
     text: str,
     *,
     expected_ledger_version: str | None,
+    idempotency_key: str | None,
     dry_run: bool,
 ) -> dict[str, Any]:
     try:
@@ -96,19 +104,6 @@ def _write_inbox_text(
 
     inbox_path = Path(os.path.realpath(snapshot.inbox.path))
 
-    if expected_ledger_version is not None and expected_ledger_version != snapshot.version:
-        return tool_error(
-            "VERSION_CONFLICT",
-            "La versione del ledger non coincide con expected_ledger_version.",
-            "Ricarica ledger_info e riprova con la versione corrente.",
-            details=[
-                {
-                    "expected": expected_ledger_version,
-                    "actual": snapshot.version,
-                }
-            ],
-        )
-
     parsed = _parse_proposed_text(text, inbox_path)
     if isinstance(parsed, dict):
         return parsed
@@ -123,7 +118,56 @@ def _write_inbox_text(
             "Verifica che l'inbox esista, sia leggibile e codificata in UTF-8.",
         )
 
-    proposed_content = append_text(existing, text)
+    receipt = ""
+    if idempotency_key is not None:
+        if not idempotency_key.strip() or len(idempotency_key) > 200:
+            return tool_error(
+                "VALIDATION_FAILED",
+                "idempotency_key deve contenere da 1 a 200 caratteri e non essere vuota.",
+                "Usa una chiave univoca per ogni operazione e riusala solo per i retry.",
+            )
+        key_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+        payload_hash = hashlib.sha256(text.strip("\n").encode("utf-8")).hexdigest()
+        prefix = f"{_RECEIPT_PREFIX}{key_hash} "
+        receipts = [line for line in existing.splitlines() if line.startswith(prefix)]
+        receipt = f"{prefix}{payload_hash}"
+        if receipts:
+            if any(line != receipt for line in receipts):
+                return tool_error(
+                    "IDEMPOTENCY_CONFLICT",
+                    "La chiave è già stata usata con un testo diverso.",
+                    "Riusa il testo originale per il retry o scegli una nuova chiave.",
+                )
+            if not dry_run:
+                try:
+                    # A previous response may have failed after replace but
+                    # before syncing the directory. Acknowledge durability now.
+                    with inbox_path.open("rb") as handle:
+                        os.fsync(handle.fileno())
+                    fsync_directory(inbox_path.parent)
+                except OSError as exc:
+                    return tool_error(
+                        "LEDGER_ERROR",
+                        f"Scrittura già presente ma sincronizzazione fallita: {exc}",
+                        "Riprova con la stessa idempotency_key e lo stesso testo.",
+                    )
+            return {**_success(snapshot, entries, inbox_path, dry_run=dry_run), "replayed": True}
+
+    if expected_ledger_version is not None and expected_ledger_version != snapshot.version:
+        return tool_error(
+            "VERSION_CONFLICT",
+            "La versione del ledger non coincide con expected_ledger_version.",
+            "Ricarica ledger_info e riprova con la versione corrente.",
+            details=[
+                {
+                    "expected": expected_ledger_version,
+                    "actual": snapshot.version,
+                }
+            ],
+        )
+
+    block = f"{receipt}\n{text}" if receipt else text
+    proposed_content = append_text(existing, block)
     try:
         new_issues = validate_staged_file(
             snapshot.ledger_path,
@@ -187,7 +231,10 @@ def _write_inbox_text(
             "Controlla il ledger con validate e verifica i file su disco.",
         )
 
-    return _success(after, entries, inbox_path, dry_run=False)
+    result = _success(after, entries, inbox_path, dry_run=False)
+    if idempotency_key is not None:
+        result["replayed"] = False
+    return result
 
 
 def _parse_proposed_text(
@@ -199,6 +246,12 @@ def _parse_proposed_text(
             "VALIDATION_FAILED",
             "Il testo non contiene direttive.",
             "Invia una o più direttive Beancount, ad esempio una transazione.",
+        )
+    if any(line.startswith(_RECEIPT_PREFIX) for line in text.splitlines()):
+        return tool_error(
+            "VALIDATION_FAILED",
+            "Il testo contiene un commento riservato per idempotency_key.",
+            "Rimuovi i commenti beancount-mcp-idempotency dal testo proposto.",
         )
     if _FORBIDDEN_LINE_RE.search(text):
         return tool_error(

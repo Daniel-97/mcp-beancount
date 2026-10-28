@@ -12,7 +12,7 @@ from beancount_mcp.config import build_config
 from beancount_mcp.ledger import LedgerService
 from beancount_mcp.tools.add_transactions import add_transactions
 from beancount_mcp.tools.validate import build_validation
-from beancount_mcp.writer import lock_path_for
+from beancount_mcp.writer import write_lock
 
 VALID_TRANSACTION = (
     '2026-02-01 * "Shop" "Coffee" #food\n  Expenses:Food   3.50 EUR\n  Assets:Cash    -3.50 EUR\n'
@@ -180,18 +180,16 @@ def testAddTransactions_shouldReturnLocked_whenLockExists(
     # Given
     ledger = copy_fixture("minimal")
     service = _service(ledger)
-    lock = lock_path_for(ledger.main)
-    lock.write_text("held\n", encoding="utf-8")
-    before = snapshot_bytes(ledger.root)
+    with write_lock(ledger.main):
+        before = snapshot_bytes(ledger.root)
 
-    # When
-    result = add_transactions(service, VALID_TRANSACTION)
+        # When
+        result = add_transactions(service, VALID_TRANSACTION)
 
-    # Then
-    assert result["ok"] is False
-    assert result["error"]["code"] == "LOCKED"
-    assert snapshot_bytes(ledger.root) == before
-    lock.unlink()
+        # Then
+        assert result["ok"] is False
+        assert result["error"]["code"] == "LOCKED"
+        assert snapshot_bytes(ledger.root) == before
 
 
 def testAddTransactions_shouldReturnReadOnly_whenServerIsReadOnly(
@@ -265,7 +263,8 @@ def testAddTransactions_shouldLeaveFilesIntact_whenAtomicReplaceFails(
     assert result["ok"] is False
     assert result["error"]["code"] == "LEDGER_ERROR"
     assert snapshot_bytes(ledger.root) == before
-    assert not lock_path_for(ledger.main).exists()
+    with write_lock(ledger.main):
+        pass
     assert list(ledger.root.glob(".*.tmp")) == []
 
 

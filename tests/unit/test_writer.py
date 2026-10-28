@@ -72,7 +72,7 @@ def testLockPathFor_shouldPlaceLockNextToLedger_whenCalled() -> None:
     assert result == Path("/tmp/ledger/main.bean.lock")
 
 
-def testWriteLock_shouldCreateAndRemoveLock_whenUsed(tmp_path: Path) -> None:
+def testWriteLock_shouldKeepReusableInode_whenReleased(tmp_path: Path) -> None:
     # Given
     ledger = tmp_path / "main.bean"
     ledger.touch()
@@ -84,17 +84,22 @@ def testWriteLock_shouldCreateAndRemoveLock_whenUsed(tmp_path: Path) -> None:
 
     # Then
     assert inside is True
-    assert lock.exists() is False
+    assert lock.exists() is True
+    inode = lock.stat().st_ino
+    with write_lock(ledger):
+        assert lock.stat().st_ino == inode
 
 
 def testWriteLock_shouldRaiseLockError_whenLockAlreadyExists(tmp_path: Path) -> None:
     # Given
     ledger = tmp_path / "main.bean"
     ledger.touch()
-    lock_path_for(ledger).write_text("held\n", encoding="utf-8")
-
     # When
-    with pytest.raises(LockError, match="Lock di scrittura") as raised, write_lock(ledger):
+    with (
+        write_lock(ledger),
+        pytest.raises(LockError, match="Lock di scrittura") as raised,
+        write_lock(ledger),
+    ):
         pass
 
     # Then
@@ -160,3 +165,45 @@ def testAtomicWrite_shouldLeaveOriginalUntouched_whenReplaceFails(
     # Then
     assert target.read_text(encoding="utf-8") == "old\n"
     assert list(tmp_path.glob(".*.tmp")) == []
+
+
+def testAtomicWrite_shouldSyncDirectoryAfterReplace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "main.bean"
+    target.write_text("old\n")
+    events: list[str] = []
+    real_fsync = os.fsync
+    real_replace = os.replace
+
+    def record_fsync(descriptor: int) -> None:
+        events.append("directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
+        real_fsync(descriptor)
+
+    def record_replace(source: str, destination: str) -> None:
+        events.append("replace")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(os, "fsync", record_fsync)
+    monkeypatch.setattr(os, "replace", record_replace)
+    atomic_write(target, "new\n")
+    assert events == ["file", "replace", "directory"]
+
+
+def testAtomicWrite_shouldReportDirectorySyncFailure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "main.bean"
+    target.write_text("old\n")
+    real_fsync = os.fsync
+
+    def fail_directory_sync(descriptor: int) -> None:
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise OSError("directory sync failed")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", fail_directory_sync)
+    with pytest.raises(OSError, match="directory sync failed"):
+        atomic_write(target, "new\n")
+    # Replacement happened, but durability was not acknowledged to the caller.
+    assert target.read_text() == "new\n"

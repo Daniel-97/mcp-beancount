@@ -130,7 +130,7 @@ def _recover_on_startup(config: Config) -> None:
         log_event(f"startup: recovery lock unavailable: {exc}", verbose=verbose)
         raise RuntimeError(
             "Transazione multi-file pendente ma il lock del ledger è attivo. "
-            f"Attendi la fine della scrittura o rimuovi il lock: {exc}"
+            f"Attendi la fine della scrittura e riprova: {exc}"
         ) from exc
     except TransactionError as exc:
         log_event(f"startup: recovery failed: {exc}", verbose=verbose)
@@ -248,13 +248,16 @@ def create_server(
             text: str,
             dry_run: bool = False,
             expected_ledger_version: str | None = None,
+            idempotency_key: str | None = None,
         ) -> dict[str, Any]:
             """Append one or more Beancount directives to the inbox.
 
             The write is atomic, serialized by a lock, and validated before/after:
             only new errors block it. Use dry_run to inspect the text without
             writing. Pass expected_ledger_version from ledger_info to detect
-            concurrent changes. pad and balance directives are rejected.
+            concurrent changes. Reuse idempotency_key with the same text on retries
+            to avoid duplicate writes, even if expected_ledger_version is now stale.
+            pad and balance directives are rejected.
 
             Examples:
             - Add a balanced transaction between two already-open accounts.
@@ -266,6 +269,7 @@ def create_server(
                 text,
                 dry_run=dry_run,
                 expected_ledger_version=expected_ledger_version,
+                idempotency_key=idempotency_key,
             )
 
         @tool

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import tempfile
 from collections.abc import Iterator
@@ -22,22 +23,36 @@ def lock_path_for(ledger_path: Path) -> Path:
 def write_lock(ledger_path: Path) -> Iterator[None]:
     """Acquire a non-blocking exclusive lock next to the ledger."""
     path = lock_path_for(ledger_path)
-    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    flags = os.O_CREAT | os.O_RDWR
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
     try:
         descriptor = os.open(path, flags, 0o600)
-    except FileExistsError as exc:
-        raise LockError(f"Lock di scrittura già presente: {path}") from exc
     except OSError as exc:
-        raise LockError(f"Impossibile creare il lock {path}: {exc}") from exc
+        raise LockError(f"Impossibile aprire il lock {path}: {exc}") from exc
 
     try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise LockError(f"Lock di scrittura già acquisito: {path}") from exc
+        os.ftruncate(descriptor, 0)
         os.write(descriptor, f"{os.getpid()}\n".encode("ascii"))
         yield
     finally:
+        # Keep the inode: unlinking allows another process to lock a different
+        # inode while a waiter still holds this one. Closing releases the lock,
+        # including when the process is killed.
         os.close(descriptor)
-        path.unlink(missing_ok=True)
+
+
+def fsync_directory(path: Path) -> None:
+    """Persist directory entry changes, or report failure to the caller."""
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def append_text(existing: str, text: str) -> str:
@@ -66,6 +81,7 @@ def atomic_write(path: Path, content: str) -> None:
             os.fsync(handle.fileno())
         os.chmod(temporary_path, mode)
         os.replace(temporary_path, path)
+        fsync_directory(path.parent)
     except Exception:
         temporary_path.unlink(missing_ok=True)
         raise

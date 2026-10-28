@@ -13,7 +13,7 @@ from beancount_mcp.entry_service import delete_transaction, edit_transaction
 from beancount_mcp.ledger import LedgerService
 from beancount_mcp.tools.add_transactions import add_transactions
 from beancount_mcp.tools.open_account import open_account
-from beancount_mcp.writer import lock_path_for
+from beancount_mcp.writer import write_lock
 
 VALID_TRANSACTION = (
     '2026-02-01 * "Shop" "Coffee"\n  Expenses:Food   3.50 EUR\n  Assets:Cash    -3.50 EUR\n'
@@ -470,16 +470,13 @@ def testEditTransaction_shouldReturnLocked_whenLockExists(copy_fixture: Any) -> 
     service = _service(ledger)
     assert add_transactions(service, VALID_TRANSACTION)["ok"] is True
     entry_id = _entry_id(ledger.inbox)
-    lock = lock_path_for(ledger.main)
-    lock.write_text("held\n", encoding="utf-8")
+    with write_lock(ledger.main):
+        # When
+        result = edit_transaction(service, entry_id, EDITED_TRANSACTION)
 
-    # When
-    result = edit_transaction(service, entry_id, EDITED_TRANSACTION)
-
-    # Then
-    assert result["ok"] is False
-    assert result["error"]["code"] == "LOCKED"
-    lock.unlink()
+        # Then
+        assert result["ok"] is False
+        assert result["error"]["code"] == "LOCKED"
 
 
 def testEditTransaction_shouldValidateModifiedSymlinkTarget_whenIncludedFileIsSymlink(

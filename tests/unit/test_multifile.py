@@ -42,7 +42,7 @@ def _pending_journal(
                 "path": str(path),
                 "backup": str(backup),
                 "original_sha256": _sha(original),
-                "new_sha256": _sha("new"),
+                "new_sha256": _sha(original.replace("old", "new")),
             }
         )
     (directory / "journal.json").write_text(
@@ -289,7 +289,7 @@ def testCommitFiles_shouldCleanCommittedDirectory_whenPresent(tmp_path: Path) ->
     assert not directory.exists()
 
 
-def testCommitFiles_shouldRollback_whenWrittenHashDoesNotMatch(
+def testCommitFiles_shouldPreserveJournal_whenWrittenHashIsUnexpected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given
@@ -310,12 +310,12 @@ def testCommitFiles_shouldRollback_whenWrittenHashDoesNotMatch(
     monkeypatch.setattr("beancount_mcp.multifile.atomic_write", corrupt_once)
 
     # When
-    with pytest.raises(TransactionError, match="annullata"):
+    with pytest.raises(TransactionError, match="ripristino incompleto"):
         commit_files(ledger, {target: "new a\n"})
 
     # Then
-    assert target.read_text(encoding="utf-8") == "old a\n"
-    assert not transaction_dir(ledger).exists()
+    assert target.read_text(encoding="utf-8") == "corrupt\n"
+    assert transaction_dir(ledger).exists()
 
 
 def testCommitFiles_shouldLeaveCommittedJournal_whenCleanupFails(
@@ -349,3 +349,41 @@ def testCommitFiles_shouldLeaveCommittedJournal_whenCleanupFails(
     assert recover_pending_transaction(ledger) is True
     assert target.read_text(encoding="utf-8") == "new a\n"
     assert not directory.exists()
+
+
+def testCommitFiles_shouldPersistBackupsBeforeTargetsAndTargetsBeforeCommit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from beancount_mcp import writer
+
+    ledger = tmp_path / "main.bean"
+    ledger.write_text("old\n")
+    directory = transaction_dir(ledger)
+    events: list[tuple[str, Path]] = []
+    real_sync = writer.fsync_directory
+    real_write = multifile._write_fsync
+
+    def record_sync(path: Path) -> None:
+        events.append(("sync", path))
+        real_sync(path)
+
+    def record_write(path: Path, content: str, *, mode: int = 0o600) -> None:
+        events.append(("write", path))
+        real_write(path, content, mode=mode)
+
+    def record_target(path: Path, content: str) -> None:
+        events.append(("target", path))
+        original_atomic_write(path, content)
+
+    monkeypatch.setattr(writer, "fsync_directory", record_sync)
+    monkeypatch.setattr(multifile, "fsync_directory", record_sync)
+    monkeypatch.setattr(multifile, "_write_fsync", record_write)
+    monkeypatch.setattr(multifile, "atomic_write", record_target)
+    commit_files(ledger, {ledger: "new\n"})
+    target_index = events.index(("target", ledger))
+    marker_index = events.index(("write", directory / "committed"))
+    assert events.index(("sync", tmp_path)) < target_index
+    assert events.index(("sync", directory / "backup")) < target_index
+    assert events.index(("sync", directory)) < target_index
+    assert ("sync", tmp_path) in events[target_index + 1 : marker_index]
+    assert events[-1] == ("sync", tmp_path)
