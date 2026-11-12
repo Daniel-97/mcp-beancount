@@ -13,12 +13,8 @@ from beanquery import connect
 from beanquery.parser import ast
 
 from beancount_mcp.config import MAX_QUERY_LIMIT
-from beancount_mcp.errors import ErrorInfo, error_response
-from beancount_mcp.ledger import (
-    LEDGER_ERROR_HINT,
-    LedgerError,
-    LedgerService,
-)
+from beancount_mcp.errors import tool_error
+from beancount_mcp.ledger import LedgerError, LedgerService, ledger_error
 
 READ_STATEMENTS = (ast.Select, ast.Balances, ast.Journal)
 QUERY_HINT = (
@@ -38,13 +34,13 @@ def run_bql(
     """Execute a read-only BQL statement and return a paginated result."""
     effective_limit = service.config.query_limit if limit is None else limit
     if not 1 <= effective_limit <= MAX_QUERY_LIMIT:
-        return _error(
+        return tool_error(
             "LIMIT_EXCEEDED",
             f"limit deve essere tra 1 e {MAX_QUERY_LIMIT} (ricevuto {effective_limit}).",
             LIMIT_HINT,
         )
     if offset < 0:
-        return _error(
+        return tool_error(
             "LIMIT_EXCEEDED",
             f"offset deve essere >= 0 (ricevuto {offset}).",
             LIMIT_HINT,
@@ -53,7 +49,7 @@ def run_bql(
     try:
         snapshot = service.load()
     except (LedgerError, OSError) as exc:
-        return _error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return ledger_error(exc)
 
     try:
         connection = connect(
@@ -64,7 +60,7 @@ def run_bql(
         )
         statement = connection.parse(bql)
         if not isinstance(statement, READ_STATEMENTS):
-            return _error(
+            return tool_error(
                 "QUERY_ERROR",
                 f"Statement non supportato: {type(statement).__name__}.",
                 QUERY_HINT,
@@ -84,7 +80,7 @@ def run_bql(
         finally:
             cursor.close()
     except Exception as exc:
-        return _error("QUERY_ERROR", str(exc), QUERY_HINT)
+        return tool_error("QUERY_ERROR", str(exc), QUERY_HINT)
 
     truncated = len(raw_rows) > effective_limit
     rows = raw_rows[:effective_limit]
@@ -154,7 +150,3 @@ def _serialize(value: Any) -> Any:
     if isinstance(value, float):
         return str(value)
     return str(value)
-
-
-def _error(code: str, message: str, hint: str) -> dict[str, Any]:
-    return error_response(ErrorInfo(code=code, message=message, hint=hint))

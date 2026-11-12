@@ -13,8 +13,8 @@ from beancount.core.data import Balance, Document, Pad
 from beancount.parser import parser
 
 from beancount_mcp.entries import DirectiveSpan, extract_directive_spans, replacement_text
-from beancount_mcp.errors import tool_error
-from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService, LedgerSnapshot
+from beancount_mcp.errors import locked_error, read_only_error, tool_error, version_conflict_error
+from beancount_mcp.ledger import LedgerError, LedgerService, LedgerSnapshot, ledger_error
 from beancount_mcp.multifile import TransactionError, commit_files, transaction_dir
 from beancount_mcp.source_service import (
     CONFIG_LINE,
@@ -22,7 +22,6 @@ from beancount_mcp.source_service import (
     SourceEntry,
     lookup_entry,
     source_entries,
-    version_conflict,
 )
 from beancount_mcp.staging import StagingError, load_staged_tree
 from beancount_mcp.write_service import (
@@ -30,7 +29,7 @@ from beancount_mcp.write_service import (
     contains_receipt,
     validation_failed_response,
 )
-from beancount_mcp.writer import LockError, append_text, write_lock
+from beancount_mcp.writer import LockError, append_text, lock_path_for, write_lock
 
 
 class ChangeError(Exception):
@@ -326,9 +325,7 @@ def apply_changes(
 ) -> dict[str, Any]:
     """Validate the final tree once, then commit all changes under one journal."""
     if service.config.read_only:
-        return tool_error(
-            "READ_ONLY", "Il server è in sola lettura.", "Riavvialo in modalità scrittura."
-        )
+        return read_only_error()
     if (
         not isinstance(changes, list)
         or not 1 <= len(changes) <= 500
@@ -349,13 +346,13 @@ def apply_changes(
     except ChangeError as exc:
         return exc.response
     except LockError as exc:
-        return tool_error("LOCKED", str(exc), "Riprova dopo la scrittura in corso.")
+        return locked_error(exc, lock_path_for(service.config.ledger_path))
     except StagingError as exc:
         return tool_error(
             "VALIDATION_FAILED", str(exc), "Controlla gli include e mantieni inclusa l’inbox."
         )
     except (LedgerError, OSError, UnicodeDecodeError, TransactionError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return ledger_error(exc)
 
 
 def _apply_once(
@@ -367,7 +364,7 @@ def _apply_once(
 ) -> dict[str, Any]:
     snapshot = service.load()
     if snapshot.version != expected:
-        return version_conflict(snapshot)
+        return version_conflict_error(expected, snapshot.version)
     plan = ChangePlan(service, snapshot, allow_balances)
     for change in changes:
         plan.apply(change)
@@ -397,7 +394,7 @@ def _apply_once(
         return {"ok": True, "dry_run": True, "files": previews, "ledger_version": snapshot.version}
     current = service.load()
     if current.version != expected:
-        return version_conflict(current)
+        return version_conflict_error(expected, current.version, during_validation=True)
     for file, original in plan.originals.items():
         actual = file.read_bytes().decode("utf-8") if file.exists() else None
         if actual != original:

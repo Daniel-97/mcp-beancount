@@ -19,8 +19,8 @@ from beancount_mcp.entries import (
     span_matches_directive,
 )
 from beancount_mcp.entry_service import parse_entry_id
-from beancount_mcp.errors import tool_error
-from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService, LedgerSnapshot
+from beancount_mcp.errors import tool_error, version_conflict_error
+from beancount_mcp.ledger import LedgerError, LedgerService, LedgerSnapshot, ledger_error
 
 CONFIG_LINE = re.compile(r'^\s*(option|plugin|include)\s+"((?:\\.|[^"\\])*)"')
 SCOPE_LINE = re.compile(r"^\s*(pushtag|poptag|pushmeta|popmeta)\b")
@@ -116,7 +116,7 @@ def find_entries(
             raise ValueError("Intervallo date invertito.")
         snapshot = service.load()
         if expected_ledger_version is not None and expected_ledger_version != snapshot.version:
-            return version_conflict(snapshot)
+            return version_conflict_error(expected_ledger_version, snapshot.version)
         rows = []
         for (path, _), entry in sorted(source_entries(snapshot).items()):
             if types is not None and entry.kind not in types:
@@ -154,7 +154,7 @@ def find_entries(
     except ValueError as exc:
         return tool_error("VALIDATION_FAILED", str(exc), "Usa date ISO YYYY-MM-DD.")
     except (LedgerError, OSError, UnicodeDecodeError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return ledger_error(exc)
 
 
 def get_entry(service: LedgerService, entry_id: dict[str, Any]) -> dict[str, Any]:
@@ -166,7 +166,7 @@ def get_entry(service: LedgerService, entry_id: dict[str, Any]) -> dict[str, Any
             return entry
         return {"ok": True, "entry": payload(entry), "ledger_version": snapshot.version}
     except (LedgerError, OSError, UnicodeDecodeError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return ledger_error(exc)
 
 
 def ledger_config(service: LedgerService) -> dict[str, Any]:
@@ -201,13 +201,4 @@ def ledger_config(service: LedgerService) -> dict[str, Any]:
             },
         }
     except (LedgerError, OSError, UnicodeDecodeError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
-
-
-def version_conflict(snapshot: LedgerSnapshot) -> dict[str, Any]:
-    return tool_error(
-        "VERSION_CONFLICT",
-        "La versione del ledger è cambiata.",
-        "Rileggi i dati e usa la nuova ledger_version.",
-        details=[{"actual": snapshot.version}],
-    )
+        return ledger_error(exc)

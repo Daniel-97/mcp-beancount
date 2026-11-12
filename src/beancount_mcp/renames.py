@@ -13,17 +13,11 @@ from beancount.core import account as beancount_account
 from beancount.core import getters
 from beancount.core.data import Custom, Directive
 
+from beancount_mcp.accounts import allowed_roots
 from beancount_mcp.entries import NON_TRANSACTION_DIRECTIVES, source_lines, split_lines
 from beancount_mcp.ledger import LedgerSnapshot
 
 TAG_RE = re.compile(r"[A-Za-z0-9\-_/.]+")
-ROOT_OPTIONS = (
-    ("name_assets", "Assets"),
-    ("name_liabilities", "Liabilities"),
-    ("name_equity", "Equity"),
-    ("name_income", "Income"),
-    ("name_expenses", "Expenses"),
-)
 # Directives whose header accepts tags and links.
 _TAGGED_DIRECTIVES = frozenset({"note", "document"})
 _DATED_LINE_RE = re.compile(r"\d{4}-\d{2}-\d{2}\s+(\S+)")
@@ -85,12 +79,12 @@ def plan_account_rename(
             "Usa il formato Root:Sottoconto, ad esempio Expenses:Restaurant.",
         )
     root = beancount_account.split(new_account)[0]
-    allowed_roots = {snapshot.options.get(option, default) for option, default in ROOT_OPTIONS}
-    if root not in allowed_roots:
+    roots = allowed_roots(snapshot.options)
+    if root not in roots:
         raise RenameError(
             "VALIDATION_FAILED",
             f"Radice account non ammessa: {root}.",
-            f"Radici ammesse: {', '.join(sorted(allowed_roots))}.",
+            f"Radici ammesse: {', '.join(sorted(roots))}.",
         )
     if include_subaccounts and new_account.startswith(f"{old_account}:"):
         raise RenameError(

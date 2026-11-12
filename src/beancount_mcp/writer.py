@@ -67,9 +67,10 @@ def append_text(existing: str, text: str) -> str:
     return existing + block + "\n"
 
 
-def atomic_write(path: Path, content: str) -> None:
-    """Write ``content`` atomically, preserving an existing file mode."""
-    mode = _target_mode(path)
+def atomic_write(path: Path, content: str, *, mode: int | None = None) -> None:
+    """Write ``content`` atomically; by default keep an existing file's mode."""
+    if mode is None:
+        mode = _target_mode(path)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
     )

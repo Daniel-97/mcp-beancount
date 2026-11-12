@@ -15,6 +15,7 @@ from beancount.parser import parser
 from beancount_mcp.config import Config
 from beancount_mcp.entries import (
     DirectiveSpan,
+    EntryId,
     delete_span,
     entry_id_to_dict,
     extract_directive_spans,
@@ -22,13 +23,8 @@ from beancount_mcp.entries import (
     is_transaction_span,
     replace_span,
 )
-from beancount_mcp.errors import ErrorInfo, error_response, tool_error
-from beancount_mcp.ledger import (
-    LEDGER_ERROR_HINT,
-    LedgerError,
-    LedgerService,
-    LedgerSnapshot,
-)
+from beancount_mcp.errors import locked_error, read_only_error, tool_error, version_conflict_error
+from beancount_mcp.ledger import LedgerService, LedgerSnapshot, load_snapshot
 from beancount_mcp.staging import StagingError, validate_staged_file
 from beancount_mcp.validation import Issue, issue_to_dict, issues_from_errors
 from beancount_mcp.write_service import (
@@ -42,15 +38,6 @@ from beancount_mcp.writer import (
     lock_path_for,
     write_lock,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class EntryIdData:
-    """Validated entry identifier input."""
-
-    file: str
-    line: int
-    hash: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,7 +57,7 @@ def edit_transaction(
 ) -> dict[str, Any]:
     """Replace one directive identified by ``entry_id``."""
     if service.config.read_only:
-        return _read_only_error()
+        return read_only_error()
     parsed_id = parse_entry_id(entry_id)
     if isinstance(parsed_id, dict):
         return parsed_id
@@ -88,7 +75,7 @@ def delete_transaction(
 ) -> dict[str, Any]:
     """Delete one transaction identified by ``entry_id``."""
     if service.config.read_only:
-        return _read_only_error()
+        return read_only_error()
     parsed_id = parse_entry_id(entry_id)
     if isinstance(parsed_id, dict):
         return parsed_id
@@ -99,7 +86,7 @@ def delete_transaction(
     )
 
 
-def parse_entry_id(data: dict[str, Any]) -> EntryIdData | dict[str, Any]:
+def parse_entry_id(data: dict[str, Any]) -> EntryId | dict[str, Any]:
     """Validate the JSON shape of an entry identifier."""
     file = data.get("file")
     line = data.get("line")
@@ -117,13 +104,13 @@ def parse_entry_id(data: dict[str, Any]) -> EntryIdData | dict[str, Any]:
             "entry_id non valido.",
             "entry_id deve contenere file, line e hash, come restituito da find_transactions.",
         )
-    return EntryIdData(file=file, line=line, hash=hash_value)
+    return EntryId(file=file, line=line, hash=hash_value)
 
 
 def resolve_entry(
     snapshot: LedgerSnapshot,
     config: Config,
-    entry_id: EntryIdData,
+    entry_id: EntryId,
     *,
     require_transaction: bool = False,
 ) -> ResolvedEntry | dict[str, Any]:
@@ -212,11 +199,11 @@ def resolve_entry(
 
 def _edit_once(
     service: LedgerService,
-    entry_id: EntryIdData,
+    entry_id: EntryId,
     new_text: str,
     dry_run: bool,
 ) -> dict[str, Any]:
-    snapshot = _load(service)
+    snapshot = load_snapshot(service)
     if isinstance(snapshot, dict):
         return snapshot
     if not snapshot.inbox.included:
@@ -267,10 +254,10 @@ def _edit_once(
 
 def _delete_once(
     service: LedgerService,
-    entry_id: EntryIdData,
+    entry_id: EntryId,
     dry_run: bool,
 ) -> dict[str, Any]:
-    snapshot = _load(service)
+    snapshot = load_snapshot(service)
     if isinstance(snapshot, dict):
         return snapshot
     if not snapshot.inbox.included:
@@ -329,21 +316,11 @@ def _validate_and_write(
             new_text=new_text,
         )
 
-    current = _load(service)
+    current = load_snapshot(service)
     if isinstance(current, dict):
         return current
     if current.version != snapshot.version:
-        return tool_error(
-            "VERSION_CONFLICT",
-            "Il ledger è cambiato durante la validazione.",
-            "Ricarica ledger_info e riprova.",
-            details=[
-                {
-                    "expected": snapshot.version,
-                    "actual": current.version,
-                }
-            ],
-        )
+        return version_conflict_error(snapshot.version, current.version, during_validation=True)
 
     try:
         atomic_write(resolved.path, new_content)
@@ -354,20 +331,12 @@ def _validate_and_write(
             "Verifica i permessi della directory e riprova.",
         )
 
-    after = _load(service)
+    after = load_snapshot(service)
     if isinstance(after, dict):
         after["error"]["message"] = (
             f"Scrittura completata ma il ledger non è ricaricabile: {after['error']['message']}"
         )
         return after
-    new_span = (
-        find_span(
-            extract_directive_spans(resolved.path, new_content),
-            new_line,
-        )
-        if new_text is not None
-        else None
-    )
     return _success(
         after,
         resolved,
@@ -474,20 +443,7 @@ def _run_write(
         with write_lock(service.config.ledger_path):
             return operation()
     except LockError as exc:
-        lock = lock_path_for(service.config.ledger_path)
-        return tool_error(
-            "LOCKED",
-            str(exc),
-            "Un'altra scrittura è in corso. Riprova tra poco; se il processo è "
-            f"terminato, riprova: il lock viene rilasciato dal sistema operativo ({lock}).",
-        )
-
-
-def _load(service: LedgerService) -> LedgerSnapshot | dict[str, Any]:
-    try:
-        return service.load()
-    except (LedgerError, OSError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return locked_error(exc, lock_path_for(service.config.ledger_path))
 
 
 def _success(
@@ -517,13 +473,3 @@ def _success(
         if dry_run:
             result["would_write_text"] = new_text.strip("\n") + "\n"
     return result
-
-
-def _read_only_error() -> dict[str, Any]:
-    return error_response(
-        ErrorInfo(
-            code="READ_ONLY",
-            message="Il server è in modalità sola lettura.",
-            hint="Riavvia il server senza --read-only per abilitare le scritture.",
-        )
-    )

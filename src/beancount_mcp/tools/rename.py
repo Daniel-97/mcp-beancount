@@ -10,8 +10,8 @@ from typing import Any
 
 from beancount.core.data import Directive
 
-from beancount_mcp.errors import tool_error
-from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService, LedgerSnapshot
+from beancount_mcp.errors import locked_error, read_only_error, tool_error, version_conflict_error
+from beancount_mcp.ledger import LedgerService, LedgerSnapshot, load_snapshot
 from beancount_mcp.multifile import TransactionError, commit_files
 from beancount_mcp.renames import (
     RenameError,
@@ -110,11 +110,7 @@ def _perform_rename(
     normalize_before: Callable[[Issue], Issue] | None = None,
 ) -> dict[str, Any]:
     if service.config.read_only:
-        return tool_error(
-            "READ_ONLY",
-            "Il server è in modalità sola lettura.",
-            "Riavvia il server senza --read-only per abilitare i rename.",
-        )
+        return read_only_error()
 
     try:
         if dry_run:
@@ -128,13 +124,7 @@ def _perform_rename(
                 return prepared
             return _commit(service, *prepared)
     except LockError as exc:
-        lock = lock_path_for(service.config.ledger_path)
-        return tool_error(
-            "LOCKED",
-            str(exc),
-            "Un'altra scrittura è in corso. Riprova tra poco; se il processo è "
-            f"terminato, riprova: il lock viene rilasciato dal sistema operativo ({lock}).",
-        )
+        return locked_error(exc, lock_path_for(service.config.ledger_path))
     except (OSError, StagingError) as exc:
         return tool_error(
             "LEDGER_ERROR",
@@ -150,7 +140,7 @@ def _prepare(
     normalize_before: Callable[[Issue], Issue] | None,
 ) -> tuple[LedgerSnapshot, RenamePlan] | dict[str, Any]:
     """Plan, authorize and validate a rename against one snapshot."""
-    snapshot = _load(service)
+    snapshot = load_snapshot(service)
     if isinstance(snapshot, dict):
         return snapshot
     try:
@@ -182,16 +172,11 @@ def _commit(
     snapshot: LedgerSnapshot,
     plan: RenamePlan,
 ) -> dict[str, Any]:
-    current = _load(service)
+    current = load_snapshot(service)
     if isinstance(current, dict):
         return current
     if current.version != snapshot.version:
-        return tool_error(
-            "VERSION_CONFLICT",
-            "Il ledger è cambiato durante la validazione.",
-            "Ricarica ledger_info e riprova.",
-            details=[{"expected": snapshot.version, "actual": current.version}],
-        )
+        return version_conflict_error(snapshot.version, current.version, during_validation=True)
     try:
         commit_files(
             snapshot.ledger_path,
@@ -205,7 +190,7 @@ def _commit(
             "La transazione multi-file è stata annullata o richiede "
             "recovery. Controlla il ledger e riprova.",
         )
-    after = _load(service)
+    after = load_snapshot(service)
     if isinstance(after, dict):
         after["error"]["message"] = (
             f"Rename applicato ma il ledger non è ricaricabile: {after['error']['message']}"
@@ -302,13 +287,6 @@ def _success(
         "ledger_version": snapshot.version,
         "warning_count": len(snapshot.errors),
     }
-
-
-def _load(service: LedgerService) -> LedgerSnapshot | dict[str, Any]:
-    try:
-        return service.load()
-    except (LedgerError, OSError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
 
 
 def _rename_error(error: RenameError) -> dict[str, Any]:

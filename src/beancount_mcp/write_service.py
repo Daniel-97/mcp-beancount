@@ -13,12 +13,12 @@ from beancount.core.data import Balance, Directive, Pad
 from beancount.parser import parser, printer
 
 from beancount_mcp.accounts import account_infos
-from beancount_mcp.errors import tool_error
+from beancount_mcp.errors import locked_error, read_only_error, tool_error, version_conflict_error
 from beancount_mcp.ledger import (
-    LEDGER_ERROR_HINT,
     LedgerError,
     LedgerService,
     LedgerSnapshot,
+    load_snapshot,
 )
 from beancount_mcp.staging import StagingError, validate_staged_file
 from beancount_mcp.validation import Issue, issue_to_dict, issues_from_errors
@@ -50,11 +50,7 @@ def write_inbox_text(
 ) -> dict[str, Any]:
     """Append directives to the inbox after full validation."""
     if service.config.read_only:
-        return tool_error(
-            "READ_ONLY",
-            "Il server è in modalità sola lettura.",
-            "Riavvia il server senza --read-only per abilitare le scritture.",
-        )
+        return read_only_error()
 
     if dry_run:
         return _write_inbox_text(
@@ -75,13 +71,7 @@ def write_inbox_text(
                 dry_run=False,
             )
     except LockError as exc:
-        lock = lock_path_for(service.config.ledger_path)
-        return tool_error(
-            "LOCKED",
-            str(exc),
-            "Un'altra scrittura è in corso. Riprova tra poco; se il processo è "
-            f"terminato, riprova: il lock viene rilasciato dal sistema operativo ({lock}).",
-        )
+        return locked_error(exc, lock_path_for(service.config.ledger_path))
 
 
 def _write_inbox_text(
@@ -92,10 +82,9 @@ def _write_inbox_text(
     idempotency_key: str | None,
     dry_run: bool,
 ) -> dict[str, Any]:
-    try:
-        snapshot = service.load()
-    except (LedgerError, OSError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+    snapshot = load_snapshot(service)
+    if isinstance(snapshot, dict):
+        return snapshot
 
     if not snapshot.inbox.included:
         return tool_error(
@@ -142,6 +131,16 @@ def _write_inbox_text(
                     "La chiave è già stata usata con un testo diverso.",
                     "Riusa il testo originale per il retry o scegli una nuova chiave.",
                 )
+            written = append_text("", f"{receipt}\n{text}")
+            if _unix_newlines(written) not in _unix_newlines(existing):
+                return tool_error(
+                    "IDEMPOTENCY_CONFLICT",
+                    "La chiave è già stata usata, ma le direttive scritte allora sono "
+                    "state modificate o rimosse.",
+                    "Non è un retry: controlla lo stato attuale con find_entries e usa "
+                    "una nuova chiave se vuoi scriverle di nuovo.",
+                    details=[{"reason": "entries_changed"}],
+                )
             if not dry_run:
                 try:
                     # A previous response may have failed after replace but
@@ -158,17 +157,7 @@ def _write_inbox_text(
             return {**_success(snapshot, entries, inbox_path, dry_run=dry_run), "replayed": True}
 
     if expected_ledger_version is not None and expected_ledger_version != snapshot.version:
-        return tool_error(
-            "VERSION_CONFLICT",
-            "La versione del ledger non coincide con expected_ledger_version.",
-            "Ricarica ledger_info e riprova con la versione corrente.",
-            details=[
-                {
-                    "expected": expected_ledger_version,
-                    "actual": snapshot.version,
-                }
-            ],
-        )
+        return version_conflict_error(expected_ledger_version, snapshot.version)
 
     block = f"{receipt}\n{text}" if receipt else text
     proposed_content = append_text(existing, block)
@@ -199,23 +188,11 @@ def _write_inbox_text(
             would_write_text=text.strip("\n") + "\n",
         )
 
-    try:
-        current = service.load()
-    except (LedgerError, OSError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
-
+    current = load_snapshot(service)
+    if isinstance(current, dict):
+        return current
     if current.version != snapshot.version:
-        return tool_error(
-            "VERSION_CONFLICT",
-            "Il ledger è cambiato durante la validazione.",
-            "Ricarica ledger_info e riprova con la versione corrente.",
-            details=[
-                {
-                    "expected": snapshot.version,
-                    "actual": current.version,
-                }
-            ],
-        )
+        return version_conflict_error(snapshot.version, current.version, during_validation=True)
 
     try:
         atomic_write(inbox_path, proposed_content)
@@ -239,6 +216,10 @@ def _write_inbox_text(
     if idempotency_key is not None:
         result["replayed"] = False
     return result
+
+
+def _unix_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n")
 
 
 def _parse_proposed_text(

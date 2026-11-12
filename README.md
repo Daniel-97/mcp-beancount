@@ -302,7 +302,10 @@ With an `idempotency_key`, the server writes a receipt comment and the directive
 in the same atomic inbox replacement. A retry with the same key and text returns
 `replayed=true` without appending again, including after a restart or with the
 original (now stale) `expected_ledger_version`. Reusing the key with different text
-returns `IDEMPOTENCY_CONFLICT`. A dry run does not reserve the key. Without a key,
+returns `IDEMPOTENCY_CONFLICT`, as does a retry after the directives written with
+that key were edited or deleted (`details` then carries
+`reason: entries_changed`): the server never reports a replay for entries that
+are no longer in the inbox as written. A dry run does not reserve the key. Without a key,
 identical appends remain permitted. Receipts are scoped to the configured inbox;
 preserve the `; beancount-mcp-idempotency:` comments when reorganizing files to
 retain retry protection. The response on replay reports the current ledger version.

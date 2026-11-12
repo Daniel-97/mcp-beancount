@@ -378,6 +378,8 @@ def create_server(
             writing. Pass expected_ledger_version from ledger_info to detect
             concurrent changes. Reuse idempotency_key with the same text on retries
             to avoid duplicate writes, even if expected_ledger_version is now stale.
+            A retry after those directives were edited or deleted returns
+            IDEMPOTENCY_CONFLICT instead of a replay.
             pad and balance directives are rejected.
 
             Examples:

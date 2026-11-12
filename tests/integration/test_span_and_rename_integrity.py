@@ -12,7 +12,7 @@ from beancount_mcp import renames
 from beancount_mcp.change_service import apply_changes
 from beancount_mcp.config import build_config
 from beancount_mcp.entries import extract_directive_spans, span_matches_directive, split_lines
-from beancount_mcp.entry_service import edit_transaction
+from beancount_mcp.entry_service import delete_transaction, edit_transaction
 from beancount_mcp.ledger import LedgerService
 from beancount_mcp.multifile import commit_files, transaction_dir
 from beancount_mcp.source_service import find_entries
@@ -484,3 +484,108 @@ def testAddTransactions_shouldNotTreatStringContentAsReceipt_whenNarrationHasFor
     assert result["ok"] is True
     assert result["replayed"] is False
     assert '"other"' in ledger.inbox.read_text(encoding="utf-8")
+
+
+NEW_TRANSACTION = '2024-02-02 * "new"\n  Assets:Cash  -5 EUR\n  Expenses:Food  5 EUR\n'
+
+
+def testAddTransactions_shouldReplay_whenWrittenDirectivesAreUntouched(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(MAIN)
+    service = _service(ledger)
+    write_inbox_text(service, NEW_TRANSACTION, idempotency_key="k")
+    write_inbox_text(service, NEW_TRANSACTION.replace("new", "later"))
+    before = ledger.inbox.read_bytes()
+
+    # When
+    retry = write_inbox_text(service, NEW_TRANSACTION, idempotency_key="k")
+
+    # Then
+    assert retry["ok"] is True and retry["replayed"] is True
+    assert ledger.inbox.read_bytes() == before
+
+
+def testAddTransactions_shouldReturnConflict_whenReplayedDirectivesWereDeleted(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(MAIN)
+    service = _service(ledger)
+    write_inbox_text(service, NEW_TRANSACTION, idempotency_key="k")
+    transaction = find_transactions(service)["transactions"][0]
+    assert delete_transaction(service, transaction["entry_id"])["ok"] is True
+    before = ledger.inbox.read_bytes()
+
+    # When
+    retry = write_inbox_text(service, NEW_TRANSACTION, idempotency_key="k")
+
+    # Then
+    assert retry["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+    assert retry["error"]["details"] == [{"reason": "entries_changed"}]
+    assert ledger.inbox.read_bytes() == before
+
+
+def testAddTransactions_shouldReturnConflict_whenReplayedDirectivesWereEdited(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(MAIN)
+    service = _service(ledger)
+    write_inbox_text(service, NEW_TRANSACTION, idempotency_key="k")
+    transaction = find_transactions(service)["transactions"][0]
+    edited = transaction["text"].replace('"new"', '"edited"')
+    assert edit_transaction(service, transaction["entry_id"], edited)["ok"] is True
+
+    # When
+    retry = write_inbox_text(service, NEW_TRANSACTION, idempotency_key="k")
+
+    # Then
+    assert retry["error"]["code"] == "IDEMPOTENCY_CONFLICT"
+
+
+def testLoad_shouldParseOnce_whenIncludeListIsUnchanged(
+    ledger_factory: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given a service that already knows the included files
+    service = _service(ledger_factory(MAIN))
+    first = service.load()
+    real_load = loader.load_file
+    calls = 0
+
+    def counting_load(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr(loader, "load_file", counting_load)
+
+    # When
+    second = service.load()
+
+    # Then
+    assert calls == 1
+    assert second.version == first.version
+    assert second.contents == first.contents
+
+
+def testLoad_shouldFollowIncludeGraph_whenKnownFileIsDetachedAndDeleted(
+    ledger_factory: Any,
+) -> None:
+    # Given
+    ledger = ledger_factory(MAIN + 'include "extra.bean"\n')
+    extra = ledger.root / "extra.bean"
+    _write(extra, "2020-01-01 open Equity:Opening\n")
+    service = _service(ledger)
+    assert extra in service.load().files
+
+    # When
+    _write(ledger.main, MAIN)
+    extra.unlink()
+    snapshot = service.load()
+
+    # Then
+    assert set(snapshot.files) == {ledger.main, ledger.inbox}
+    assert set(snapshot.contents) == {ledger.main, ledger.inbox}
+    assert not snapshot.errors

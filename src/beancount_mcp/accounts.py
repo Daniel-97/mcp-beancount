@@ -2,11 +2,25 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
 from beancount.core.data import Close, Directive, Open
+
+_ROOT_OPTIONS = (
+    ("name_assets", "Assets"),
+    ("name_liabilities", "Liabilities"),
+    ("name_equity", "Equity"),
+    ("name_income", "Income"),
+    ("name_expenses", "Expenses"),
+)
+
+
+def allowed_roots(options: Mapping[str, Any]) -> set[str]:
+    """Return the account root names configured by the ledger options."""
+    return {options.get(option, default) for option, default in _ROOT_OPTIONS}
 
 
 @dataclass(frozen=True, slots=True)
