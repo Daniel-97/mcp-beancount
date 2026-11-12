@@ -690,6 +690,82 @@ include "inbox.bean"
 Until the inbox exists and is included, `ledger_info` reports a warning and
 write tools return `INBOX_NOT_INCLUDED`.
 
+## Interactive MCP playground
+
+`scripts/chat.py` is a standalone terminal client for testing the MCP server with
+an OpenAI-compatible **Chat Completions endpoint supporting function/tool calls**.
+It prompts for the base URL, API key (hidden, optional for local providers), model
+and MCP URL. It discovers `/models` when available and bridges model tool calls to
+MCP automatically. It does not require an OpenAI Python SDK or a project install.
+Responses-only endpoints/models are not supported by this playground. The wire
+format follows the [OpenAI function-calling guide](https://developers.openai.com/api/docs/guides/function-calling).
+
+For a fully containerized test with the repository's disposable sample ledger,
+build the image and start the server in one terminal:
+
+```bash
+docker build -t beancount-mcp:local .
+docker run --rm --name beancount-mcp-demo \
+  -p 127.0.0.1:8000:8000 \
+  --mount "type=bind,source=$PWD/tests/fixtures/minimal,target=/ledger,readonly" \
+  beancount-mcp:local --read-only
+```
+
+In another terminal, run the chat script using Python and dependencies already
+inside that image. No local Python, uv, or package installation is required:
+
+```bash
+docker run --rm -it \
+  --network container:beancount-mcp-demo \
+  --entrypoint python \
+  --mount "type=bind,source=$PWD/scripts/chat.py,target=/chat.py,readonly" \
+  beancount-mcp:local /chat.py --mcp-url http://127.0.0.1:8000/mcp
+```
+
+The client shares the server container's network, so the MCP URL above works on
+Linux and Docker Desktop. Enter the provider URL reachable **from the container**.
+On Docker Desktop, a provider running on the host uses e.g.
+`http://host.docker.internal:1234/v1`, rather than `localhost:1234`. A remote
+provider uses its normal HTTPS base URL. This example server is read-only; stop
+it with Ctrl-C in the first terminal when finished.
+
+Alternatively, run just the client on the host with uv. The inline script
+metadata creates an isolated cached environment; it does not install this project
+or change its dependencies:
+
+```bash
+uv run --script scripts/chat.py
+# Or skip the URL/model prompts:
+uv run --script scripts/chat.py \
+  --mcp-url http://127.0.0.1:8000/mcp \
+  --base-url http://localhost:1234/v1 \
+  --model your-model-id
+```
+
+`OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_API_KEY` and `BEANCOUNT_MCP_URL` supply
+defaults. If no API key variable is set, the script asks with a hidden prompt;
+an empty key omits authentication. `--api-key-env NAME` selects another key
+variable. For the Docker client, `-e OPENAI_API_KEY` forwards that environment
+variable when desired. The key goes only to the model endpoint, never to MCP.
+Tool results used in chat are sent to the chosen model provider. Conversation
+history stays in memory and is not saved to disk.
+
+Try “Quali conti ci sono?” or “Controlla se il ledger ha errori”. Useful commands:
+
+- `/tools` lists tools; `/tools query` shows one tool's schema and description.
+- `/call ledger_info {}` or `/call query {"bql":"SELECT account, SUM(position) GROUP BY account"}` calls MCP directly without sending that call/result to the model.
+- `/writes on` enables mutating tools in the client; `/writes off` disables them.
+- `/reset` clears chat history; `/quit`, Ctrl-D or Ctrl-C exits.
+- `--verbose` prints full tool results; tool names and arguments are shown by default.
+
+Writes are disabled in the client by default. To test writes, use a disposable
+copy of the ledger and a server started without `--read-only`, then enable
+`/writes on` (or start the client with `--allow-writes`). Client mode cannot enable
+tools or permissions disabled by the server. Unknown tools are not treated as
+read-only. Requests are not automatically retried after errors/timeouts; inspect
+the ledger before retrying a write whose response may have been lost.
+`--timeout` sets request timeouts; `--max-rounds` bounds model/tool rounds per turn.
+
 ## Testing
 
 Install the development dependencies and run the suite:
