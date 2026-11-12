@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from beancount.core import account as beancount_account
 from beancount.core import getters
+from beancount.core.data import Custom, Directive
 
-from beancount_mcp.entries import source_lines
+from beancount_mcp.entries import NON_TRANSACTION_DIRECTIVES, source_lines, split_lines
 from beancount_mcp.ledger import LedgerSnapshot
 
 TAG_RE = re.compile(r"[A-Za-z0-9\-_/.]+")
-TAG_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_./")
 ROOT_OPTIONS = (
     ("name_assets", "Assets"),
     ("name_liabilities", "Liabilities"),
@@ -23,19 +24,11 @@ ROOT_OPTIONS = (
     ("name_income", "Income"),
     ("name_expenses", "Expenses"),
 )
-NON_TRANSACTION_DIRECTIVES = {
-    "open",
-    "close",
-    "balance",
-    "pad",
-    "note",
-    "document",
-    "price",
-    "event",
-    "query",
-    "custom",
-    "commodity",
-}
+# Directives whose header accepts tags and links.
+_TAGGED_DIRECTIVES = frozenset({"note", "document"})
+_DATED_LINE_RE = re.compile(r"\d{4}-\d{2}-\d{2}\s+(\S+)")
+
+LineRewriter = Callable[[str, bool], str]
 
 
 class RenameError(Exception):
@@ -71,6 +64,8 @@ class RenamePlan:
 
     changes: tuple[RenameChange, ...]
     modifications: dict[Path, str]
+    # Text each modified file had when the plan was computed.
+    originals: dict[Path, str] = field(default_factory=dict)
 
 
 def plan_account_rename(
@@ -121,49 +116,21 @@ def plan_account_rename(
             details=[{"account": new_account}],
         )
 
-    changes: list[RenameChange] = []
-    modifications: dict[Path, str] = {}
-    seen: set[Path] = set()
-    for source in snapshot.files:
-        file = Path(os.path.realpath(source))
-        if file in seen:
-            continue
-        seen.add(file)
-        text = _read_text(file)
-        lines = text.splitlines(keepends=True)
-        rewritten_lines: list[str] = []
-        changed = False
-        for line_number, (line, in_string) in enumerate(source_lines(lines), start=1):
-            if in_string:
-                rewritten_lines.append(line)
-                continue
-            rewritten = _rewrite_account_line(
-                line,
-                old_account,
-                new_account,
-                include_subaccounts,
-            )
-            rewritten_lines.append(rewritten)
-            if rewritten != line:
-                changed = True
-                changes.append(
-                    RenameChange(
-                        file=str(file),
-                        line=line_number,
-                        before=line.rstrip("\r\n"),
-                        after=rewritten.rstrip("\r\n"),
-                    )
-                )
-        if changed:
-            modifications[file] = "".join(rewritten_lines)
+    def rewrite(line: str, in_string: bool) -> str:
+        if not in_string and not _line_can_contain_account(line):
+            return line
+        return _rewrite_account_line(
+            line, old_account, new_account, include_subaccounts, in_string=in_string
+        )
 
-    if not changes:
+    plan = _rewrite_files(snapshot, rewrite)
+    if not plan.changes:
         raise RenameError(
             "ENTRY_NOT_FOUND",
             f"Nessuna occorrenza dell'account {old_account}.",
             "Controlla il nome dell'account e riprova.",
         )
-    return RenamePlan(tuple(changes), modifications)
+    return plan
 
 
 def plan_tag_rename(
@@ -195,26 +162,39 @@ def _plan_token_rename(
     if old == new:
         return RenamePlan(changes=(), modifications={})
 
+    def rewrite(line: str, in_string: bool) -> str:
+        if not in_string and not _line_can_contain_token(line, marker):
+            return line
+        return _rewrite_token_line(line, marker, old, new, in_string=in_string)
+
+    plan = _rewrite_files(snapshot, rewrite)
+    if not plan.changes:
+        label = "tag" if marker == "#" else "link"
+        raise RenameError(
+            "ENTRY_NOT_FOUND",
+            f"Nessuna occorrenza del {label} {marker}{old}.",
+            f"Controlla il nome del {label} e riprova.",
+        )
+    return plan
+
+
+def _rewrite_files(snapshot: LedgerSnapshot, rewrite: LineRewriter) -> RenamePlan:
+    """Rewrite every line of the snapshot's files and collect what changed."""
     changes: list[RenameChange] = []
     modifications: dict[Path, str] = {}
+    originals: dict[Path, str] = {}
     seen: set[Path] = set()
     for source in snapshot.files:
         file = Path(os.path.realpath(source))
         if file in seen:
             continue
         seen.add(file)
-        text = _read_text(file)
-        lines = text.splitlines(keepends=True)
+        text = _snapshot_text(snapshot, source, file)
         rewritten_lines: list[str] = []
-        changed = False
-        for line_number, (line, in_string) in enumerate(source_lines(lines), start=1):
-            if not in_string and not _line_can_contain_token(line, marker):
-                rewritten_lines.append(line)
-                continue
-            rewritten = _rewrite_token_line(line, marker, old, new, in_string=in_string)
+        for line_number, (line, in_string) in enumerate(source_lines(split_lines(text)), start=1):
+            rewritten = rewrite(line, in_string)
             rewritten_lines.append(rewritten)
             if rewritten != line:
-                changed = True
                 changes.append(
                     RenameChange(
                         file=str(file),
@@ -223,17 +203,50 @@ def _plan_token_rename(
                         after=rewritten.rstrip("\r\n"),
                     )
                 )
-        if changed:
-            modifications[file] = "".join(rewritten_lines)
+        rewritten_text = "".join(rewritten_lines)
+        if rewritten_text != text:
+            modifications[file] = rewritten_text
+            originals[file] = text
+    return RenamePlan(tuple(changes), modifications, originals)
 
-    if not changes:
-        label = "tag" if marker == "#" else "link"
-        raise RenameError(
-            "ENTRY_NOT_FOUND",
-            f"Nessuna occorrenza del {label} {marker}{old}.",
-            f"Controlla il nome del {label} e riprova.",
+
+def account_leftovers(
+    entries: Iterable[Directive],
+    old_account: str,
+    include_subaccounts: bool,
+) -> list[Directive]:
+    """List loaded entries that still reference the renamed account."""
+    old = old_account.strip()
+
+    def is_old(name: object) -> bool:
+        return (
+            isinstance(name, str)
+            and _replace_account_token(name, old, "", include_subaccounts) != name
         )
-    return RenamePlan(tuple(changes), modifications)
+
+    leftovers: list[Directive] = []
+    for entry in entries:
+        names = set(getters.get_entry_accounts(entry))
+        if isinstance(entry, Custom):
+            names.update(
+                value.value
+                for value in entry.values or ()
+                if getattr(value, "dtype", None) == beancount_account.TYPE
+            )
+        if any(is_old(name) for name in names):
+            leftovers.append(entry)
+    return leftovers
+
+
+def token_leftovers(
+    entries: Iterable[Directive],
+    marker: str,
+    old_value: str,
+) -> list[Directive]:
+    """List loaded entries that still carry the renamed tag or link."""
+    old = _normalize_tag(old_value, marker)
+    attribute = "tags" if marker == "#" else "links"
+    return [entry for entry in entries if old in (getattr(entry, attribute, None) or ())]
 
 
 def _normalize_tag(value: str, marker: str) -> str:
@@ -250,59 +263,34 @@ def _normalize_tag(value: str, marker: str) -> str:
     return normalized
 
 
+def _line_can_contain_account(line: str) -> bool:
+    """Dated directives, their indented lines, and pushmeta can name accounts."""
+    return line[:1].isspace() or line.startswith("pushmeta") or bool(_DATED_LINE_RE.match(line))
+
+
 def _rewrite_account_line(
     line: str,
     old: str,
     new: str,
     include_subaccounts: bool,
+    *,
+    in_string: bool = False,
 ) -> str:
-    newline = ""
-    body = line
-    if line.endswith("\r\n"):
-        newline = "\r\n"
-        body = line[:-2]
-    elif line.endswith("\n"):
-        newline = "\n"
-        body = line[:-1]
+    """Rename account tokens outside strings and comments.
 
-    pad = re.match(
-        r"^(\d{4}-\d{2}-\d{2}\s+pad\s+)(\S+)(\s+)(\S+)(.*)$",
-        body,
-    )
-    if pad:
-        first = _replace_account_token(pad.group(2), old, new, include_subaccounts)
-        second = _replace_account_token(pad.group(4), old, new, include_subaccounts)
-        if first != pad.group(2) or second != pad.group(4):
-            return f"{pad.group(1)}{first}{pad.group(3)}{second}{pad.group(5)}{newline}"
-        return body + newline
+    Account names contain a colon and no other token kind can equal one, so
+    every whole-token match is an account: postings, directive arguments,
+    custom values and metadata values alike.
+    """
 
-    directive = re.match(
-        r"^(\d{4}-\d{2}-\d{2}\s+(?:open|close|balance|note|document)\s+)"
-        r"(\S+)(.*)$",
-        body,
-    )
-    if directive:
-        account = _replace_account_token(
-            directive.group(2),
-            old,
-            new,
-            include_subaccounts,
+    def rewrite(code: str) -> str:
+        return re.sub(
+            r"\S+",
+            lambda match: _replace_account_token(match[0], old, new, include_subaccounts),
+            code,
         )
-        if account != directive.group(2):
-            return f"{directive.group(1)}{account}{directive.group(3)}{newline}"
-        return body + newline
 
-    posting = re.match(r"^(\s+(?:\S\s+)?)(\S+)(.*)$", body)
-    if posting:
-        account = _replace_account_token(
-            posting.group(2),
-            old,
-            new,
-            include_subaccounts,
-        )
-        if account != posting.group(2):
-            return f"{posting.group(1)}{account}{posting.group(3)}{newline}"
-    return body + newline
+    return _rewrite_code(line, rewrite, in_string=in_string)
 
 
 def _replace_account_token(
@@ -322,10 +310,13 @@ def _line_can_contain_token(line: str, marker: str) -> bool:
     stripped = line.lstrip()
     if marker == "#" and stripped.startswith(("pushtag", "poptag")):
         return True
-    match = re.match(r"^\d{4}-\d{2}-\d{2}\s+(\S+)", line)
+    if line[:1].isspace():
+        # Tags and links may continue on indented lines below the header.
+        return stripped.startswith(("#", "^"))
+    match = _DATED_LINE_RE.match(line)
     if match is None:
         return False
-    return match.group(1) not in NON_TRANSACTION_DIRECTIVES
+    return match[1] in _TAGGED_DIRECTIVES or match[1] not in NON_TRANSACTION_DIRECTIVES
 
 
 def _rewrite_token_line(
@@ -336,11 +327,28 @@ def _rewrite_token_line(
     *,
     in_string: bool = False,
 ) -> str:
+    pattern = re.compile(rf"{re.escape(marker)}([A-Za-z0-9\-_/.]*)")
+
+    def rewrite(code: str) -> str:
+        return pattern.sub(
+            lambda match: f"{marker}{new}" if match[1] == old else match[0],
+            code,
+        )
+
+    return _rewrite_code(line, rewrite, in_string=in_string)
+
+
+def _rewrite_code(
+    line: str,
+    rewrite: Callable[[str], str],
+    *,
+    in_string: bool = False,
+) -> str:
+    """Apply ``rewrite`` to the parts of ``line`` outside strings and comments."""
     output: list[str] = []
-    index = 0
+    code: list[str] = []
     escaped = False
-    while index < len(line):
-        char = line[index]
+    for index, char in enumerate(line):
         if in_string:
             output.append(char)
             if escaped:
@@ -349,30 +357,35 @@ def _rewrite_token_line(
                 escaped = True
             elif char == '"':
                 in_string = False
-            index += 1
-            continue
-        if char == '"':
-            in_string = True
+        elif char == '"':
+            output.append(rewrite("".join(code)))
+            code.clear()
             output.append(char)
-            index += 1
-            continue
-        if char == ";":
+            in_string = True
+        elif char == ";":
+            output.append(rewrite("".join(code)))
+            code.clear()
             output.append(line[index:])
             break
-        if char == marker:
-            end = index + 1
-            while end < len(line) and line[end] in TAG_CHARS:
-                end += 1
-            token = line[index + 1 : end]
-            if token == old:
-                output.append(f"{marker}{new}")
-            else:
-                output.append(line[index:end])
-            index = end
-            continue
-        output.append(char)
-        index += 1
+        else:
+            code.append(char)
+    output.append(rewrite("".join(code)))
     return "".join(output)
+
+
+def _snapshot_text(snapshot: LedgerSnapshot, source: Path, file: Path) -> str:
+    """Return the bytes the snapshot was parsed from, so plan and version agree."""
+    data = snapshot.contents.get(source)
+    if data is None:
+        return _read_text(file)
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RenameError(
+            "LEDGER_ERROR",
+            f"File non UTF-8: {file}",
+            "Converti il file del ledger in UTF-8 e riprova.",
+        ) from exc
 
 
 def _read_text(path: Path) -> str:

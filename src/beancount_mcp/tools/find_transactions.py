@@ -15,6 +15,7 @@ from beancount_mcp.entries import (
     DirectiveSpan,
     entry_id_to_dict,
     extract_directive_spans,
+    span_matches_directive,
 )
 from beancount_mcp.errors import tool_error
 from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService
@@ -142,7 +143,10 @@ def _span_for_entry(
         spans = spans_by_file.get(str(Path(os.path.realpath(filename))))
     if spans is None:
         return None
-    return spans.get(lineno)
+    span = spans.get(lineno)
+    if span is None or not span_matches_directive(span, entry):
+        return None
+    return span
 
 
 def _matches(

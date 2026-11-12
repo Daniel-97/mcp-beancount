@@ -12,7 +12,7 @@ from typing import Any
 from beancount.core.data import Balance, Document, Pad
 from beancount.parser import parser
 
-from beancount_mcp.entries import DirectiveSpan, extract_directive_spans
+from beancount_mcp.entries import DirectiveSpan, extract_directive_spans, replacement_text
 from beancount_mcp.errors import tool_error
 from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService, LedgerSnapshot
 from beancount_mcp.multifile import TransactionError, commit_files, transaction_dir
@@ -24,8 +24,12 @@ from beancount_mcp.source_service import (
     source_entries,
     version_conflict,
 )
-from beancount_mcp.staging import StagingError, validate_staged_tree
-from beancount_mcp.write_service import validation_failed_response
+from beancount_mcp.staging import StagingError, load_staged_tree
+from beancount_mcp.write_service import (
+    FORBIDDEN_LINE_RE,
+    contains_receipt,
+    validation_failed_response,
+)
 from beancount_mcp.writer import LockError, append_text, write_lock
 
 
@@ -79,11 +83,11 @@ class ChangePlan:
         return path
 
     def parse_text(self, text: str, *, empty: bool = False) -> int:
-        if re.search(r"(?m)^\s*(include|plugin|option)\b", text):
+        if FORBIDDEN_LINE_RE.search(text):
             raise ChangeError(
                 "VALIDATION_FAILED", "Usa le operazioni dedicate per include e configurazione."
             )
-        if any(line.startswith("; beancount-mcp-idempotency:") for line in text.splitlines()):
+        if contains_receipt(text):
             raise ChangeError("VALIDATION_FAILED", "I commenti di idempotenza sono riservati.")
         entries, errors, _ = parser.parse_string(text)
         if errors:
@@ -204,7 +208,7 @@ class ChangePlan:
                         raise ChangeError(
                             "VALIDATION_FAILED", "replace richiede una sola direttiva."
                         )
-                    replacement = change["text"].strip("\n") + "\n"
+                    replacement = replacement_text(entry.span, change["text"])
                 self.edit(file, entry.span, replacement)
         elif op == "append":
             self.parse_text(change["text"])
@@ -285,6 +289,20 @@ class ChangePlan:
                 suffix = " " + _quote(config) if config is not None else ""
                 self.appends[file].append(f"plugin {_quote(plugin['name'])}{suffix}\n")
 
+    def protect_dropped_files(self, contents: dict[Path, str], included: frozenset[Path]) -> None:
+        """Apply directive protection to files the batch removes from the ledger.
+
+        Dropping an include deletes every directive the file still holds, so
+        it needs the same consent as deleting them one by one.
+        """
+        for source in self.snapshot.files:
+            file = source.resolve()
+            if file in included:
+                continue
+            entries, _, _ = parser.parse_string(contents.get(file, ""))
+            for entry in entries:
+                self.protect(entry)
+
     def contents(self) -> dict[Path, str]:
         result = {}
         for file, original in self.originals.items():
@@ -354,7 +372,7 @@ def _apply_once(
     for change in changes:
         plan.apply(change)
     contents = plan.contents()
-    issues = validate_staged_tree(
+    staged = load_staged_tree(
         snapshot.ledger_path,
         snapshot.files,
         contents,
@@ -362,8 +380,9 @@ def _apply_once(
         allow_new_files=True,
         required_files=plan.required_files,
     )
-    if issues:
-        return validation_failed_response(issues, snapshot)
+    plan.protect_dropped_files(contents, staged.included)
+    if staged.issues:
+        return validation_failed_response(staged.issues, snapshot)
     # Install new destinations before changing include statements/source files.
     modifications = {
         file: contents[file]
@@ -388,7 +407,14 @@ def _apply_once(
         modifications,
         expected_contents={file: plan.originals[file] for file in modifications},
     )
-    after = service.load()
+    try:
+        after = service.load()
+    except (LedgerError, OSError) as exc:
+        return tool_error(
+            "LEDGER_ERROR",
+            f"Modifiche applicate ma il ledger non è ricaricabile: {exc}",
+            "Non ripetere il batch: controlla il ledger con validate e i file su disco.",
+        )
     return {
         "ok": True,
         "dry_run": False,

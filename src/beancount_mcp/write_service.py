@@ -31,9 +31,13 @@ from beancount_mcp.writer import (
     write_lock,
 )
 
-_RECEIPT_PREFIX = "; beancount-mcp-idempotency: "
+RECEIPT_PREFIX = "; beancount-mcp-idempotency: "
+FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin|option)\b")
 
-_FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin|option)\b")
+
+def contains_receipt(text: str) -> bool:
+    """Return whether ``text`` has a line reserved for idempotency receipts."""
+    return any(line.startswith(RECEIPT_PREFIX.rstrip()) for line in text.split("\n"))
 
 
 def write_inbox_text(
@@ -128,8 +132,8 @@ def _write_inbox_text(
             )
         key_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
         payload_hash = hashlib.sha256(text.strip("\n").encode("utf-8")).hexdigest()
-        prefix = f"{_RECEIPT_PREFIX}{key_hash} "
-        receipts = [line for line in existing.splitlines() if line.startswith(prefix)]
+        prefix = f"{RECEIPT_PREFIX}{key_hash} "
+        receipts = [line.rstrip("\r") for line in existing.split("\n") if line.startswith(prefix)]
         receipt = f"{prefix}{payload_hash}"
         if receipts:
             if any(line != receipt for line in receipts):
@@ -247,13 +251,13 @@ def _parse_proposed_text(
             "Il testo non contiene direttive.",
             "Invia una o più direttive Beancount, ad esempio una transazione.",
         )
-    if any(line.startswith(_RECEIPT_PREFIX) for line in text.splitlines()):
+    if contains_receipt(text):
         return tool_error(
             "VALIDATION_FAILED",
             "Il testo contiene un commento riservato per idempotency_key.",
             "Rimuovi i commenti beancount-mcp-idempotency dal testo proposto.",
         )
-    if _FORBIDDEN_LINE_RE.search(text):
+    if FORBIDDEN_LINE_RE.search(text):
         return tool_error(
             "VALIDATION_FAILED",
             "Il testo contiene una direttiva include, plugin o option non ammessa.",

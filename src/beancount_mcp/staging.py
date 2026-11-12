@@ -9,10 +9,11 @@ import re
 import tempfile
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from beancount import loader
-from beancount.core.data import BeancountError
+from beancount.core.data import BeancountError, Directive
 
 from beancount_mcp.validation import (
     Issue,
@@ -28,6 +29,26 @@ _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[/\\]")
 
 class StagingError(Exception):
     """Raised when the staged tree cannot be built faithfully."""
+
+
+@dataclass(frozen=True, slots=True)
+class StagedLoad:
+    """The outcome of loading the proposed tree."""
+
+    issues: list[Issue]
+    entries: tuple[Directive, ...]
+    included: frozenset[Path]
+    path_map: Mapping[str, Path]
+
+    def location(self, entry: Directive) -> tuple[str | None, int | None]:
+        """Return the original file and line of a staged entry."""
+        meta = entry.meta or {}
+        filename, line = meta.get("filename"), meta.get("lineno")
+        original = self.path_map.get(filename) if isinstance(filename, str) else None
+        return (
+            str(original) if original is not None else None,
+            line if isinstance(line, int) else None,
+        )
 
 
 def validate_staged_file(
@@ -57,13 +78,35 @@ def validate_staged_tree(
     required_files: Iterable[Path] = (),
 ) -> list[Issue]:
     """Load a staged copy with several modified files and return new issues."""
+    return load_staged_tree(
+        ledger_path,
+        files,
+        modifications,
+        before_errors,
+        normalize_before,
+        allow_new_files=allow_new_files,
+        required_files=required_files,
+    ).issues
+
+
+def load_staged_tree(
+    ledger_path: Path,
+    files: Iterable[Path],
+    modifications: Mapping[Path, str],
+    before_errors: Iterable[BeancountError],
+    normalize_before: Callable[[Issue], Issue] | None = None,
+    *,
+    allow_new_files: bool = False,
+    required_files: Iterable[Path] = (),
+) -> StagedLoad:
+    """Load a staged copy and return new issues, entries, and included real paths."""
     with _staged_tree(
         files,
         ledger_path,
         modifications,
         allow_new_files=allow_new_files,
     ) as (staged_main, path_map):
-        _, errors, options = loader.load_file(str(staged_main))
+        entries, errors, options = loader.load_file(str(staged_main))
         included = {
             Path(os.path.realpath(path_map[path]))
             for path in options.get("include", [])
@@ -80,7 +123,12 @@ def validate_staged_tree(
     if normalize_before is not None:
         before = [normalize_before(issue) for issue in before]
     after = issues_from_errors(errors)
-    return [_translate_issue(issue, path_map) for issue in compare_issues(before, after)]
+    return StagedLoad(
+        issues=[_translate_issue(issue, path_map) for issue in compare_issues(before, after)],
+        entries=tuple(entries),
+        included=frozenset(included),
+        path_map=path_map,
+    )
 
 
 @contextmanager

@@ -31,15 +31,17 @@ from beancount_mcp.ledger import (
 )
 from beancount_mcp.staging import StagingError, validate_staged_file
 from beancount_mcp.validation import Issue, issue_to_dict, issues_from_errors
-from beancount_mcp.write_service import validation_failed_response
+from beancount_mcp.write_service import (
+    FORBIDDEN_LINE_RE,
+    contains_receipt,
+    validation_failed_response,
+)
 from beancount_mcp.writer import (
     LockError,
     atomic_write,
     lock_path_for,
     write_lock,
 )
-
-_FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin|option)\b")
 
 
 @dataclass(frozen=True, slots=True)
@@ -406,7 +408,13 @@ def _parse_new_text(
             "new_text è vuoto.",
             "Fornisci una direttiva Beancount.",
         )
-    if _FORBIDDEN_LINE_RE.search(new_text):
+    if contains_receipt(new_text):
+        return tool_error(
+            "VALIDATION_FAILED",
+            "new_text contiene un commento riservato per idempotency_key.",
+            "Rimuovi i commenti beancount-mcp-idempotency dal testo.",
+        )
+    if FORBIDDEN_LINE_RE.search(new_text):
         return tool_error(
             "VALIDATION_FAILED",
             "new_text contiene include, plugin o option non ammessi.",

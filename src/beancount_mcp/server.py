@@ -477,9 +477,11 @@ def create_server(
         ) -> dict[str, Any]:
             """Rename an account across all included ledger files.
 
-            Rewrites account fields in open/close/balance/pad/note/document
-            directives and transaction postings. With include_subaccounts, also
-            renames Old:* to New:*. By default only the inbox is editable; other
+            Rewrites account tokens in dated directives (open/close/balance/pad/
+            note/document/custom, postings, unquoted metadata values), never
+            quoted strings or comments. With include_subaccounts, also renames
+            Old:* to New:*. Fails with RENAME_INCOMPLETE, writing nothing, if any
+            directive would still use the old name. By default only the inbox is editable; other
             included files require --allow-edit-outside-inbox. Use dry_run to
             inspect every changed line without writing.
 
@@ -502,7 +504,7 @@ def create_server(
             new_tag: str,
             dry_run: bool = False,
         ) -> dict[str, Any]:
-            """Rename a tag in transactions and pushtag/poptag directives.
+            """Rename a tag on transactions, notes, documents and pushtag/poptag.
 
             Tags inside quoted narrations and comments are not modified. If the
             new tag exists already, occurrences are merged. The rename is
@@ -522,7 +524,7 @@ def create_server(
             new_link: str,
             dry_run: bool = False,
         ) -> dict[str, Any]:
-            """Rename a link in transaction headers.
+            """Rename a link on transactions, notes and documents.
 
             Links inside quoted narrations and comments are not modified. If the
             new link exists already, occurrences are merged. The rename is

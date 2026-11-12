@@ -12,7 +12,12 @@ from typing import Any
 from beancount.core.data import Directive
 from beancount.parser import parser
 
-from beancount_mcp.entries import DirectiveSpan, entry_id_to_dict, extract_directive_spans
+from beancount_mcp.entries import (
+    DirectiveSpan,
+    entry_id_to_dict,
+    extract_directive_spans,
+    span_matches_directive,
+)
 from beancount_mcp.entry_service import parse_entry_id
 from beancount_mcp.errors import tool_error
 from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService, LedgerSnapshot
@@ -39,9 +44,9 @@ def source_entries(snapshot: LedgerSnapshot) -> dict[tuple[Path, int], SourceEnt
         spans = {span.entry_id.line: span for span in extract_directive_spans(file, text)}
         entries, _, _ = parser.parse_string(text, report_filename=str(file))
         for entry in entries:
-            line = int(entry.meta["lineno"])
-            if line in spans:
-                result[(file.resolve(), line)] = SourceEntry(entry, spans[line])
+            span = spans.get(int(entry.meta["lineno"]))
+            if span is not None and span_matches_directive(span, entry):
+                result[(file.resolve(), span.entry_id.line)] = SourceEntry(entry, span)
     return result
 
 
