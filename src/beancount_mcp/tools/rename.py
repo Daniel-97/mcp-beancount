@@ -8,22 +8,28 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from beancount_mcp.errors import tool_error
-from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService, LedgerSnapshot
+from beancount.core.data import Directive
+
+from beancount_mcp.errors import locked_error, read_only_error, tool_error, version_conflict_error
+from beancount_mcp.ledger import LedgerService, LedgerSnapshot, load_snapshot
 from beancount_mcp.multifile import TransactionError, commit_files
 from beancount_mcp.renames import (
     RenameError,
     RenamePlan,
+    account_leftovers,
     plan_account_rename,
     plan_link_rename,
     plan_tag_rename,
+    token_leftovers,
 )
-from beancount_mcp.staging import StagingError, validate_staged_tree
+from beancount_mcp.staging import StagedLoad, StagingError, load_staged_tree
 from beancount_mcp.validation import Issue
 from beancount_mcp.write_service import validation_failed_response
 from beancount_mcp.writer import LockError, lock_path_for, write_lock
 
 Planner = Callable[[LedgerSnapshot], RenamePlan]
+Leftovers = Callable[[tuple[Directive, ...]], list[Directive]]
+_MAX_LEFTOVER_DETAILS = 20
 
 
 def rename_account(
@@ -43,6 +49,7 @@ def rename_account(
             include_subaccounts=include_subaccounts,
         ),
         dry_run=dry_run,
+        leftovers=lambda entries: account_leftovers(entries, account, include_subaccounts),
         normalize_before=lambda issue: _normalize_account_issue(
             issue,
             account,
@@ -63,6 +70,7 @@ def rename_tag(
         service,
         lambda snapshot: plan_tag_rename(snapshot, tag, new_tag),
         dry_run=dry_run,
+        leftovers=lambda entries: token_leftovers(entries, "#", tag),
         normalize_before=lambda issue: _normalize_token_issue(
             issue,
             "#",
@@ -83,6 +91,7 @@ def rename_link(
         service,
         lambda snapshot: plan_link_rename(snapshot, link, new_link),
         dry_run=dry_run,
+        leftovers=lambda entries: token_leftovers(entries, "^", link),
         normalize_before=lambda issue: _normalize_token_issue(
             issue,
             "^",
@@ -97,97 +106,120 @@ def _perform_rename(
     planner: Planner,
     *,
     dry_run: bool,
+    leftovers: Leftovers,
     normalize_before: Callable[[Issue], Issue] | None = None,
 ) -> dict[str, Any]:
     if service.config.read_only:
-        return tool_error(
-            "READ_ONLY",
-            "Il server è in modalità sola lettura.",
-            "Riavvia il server senza --read-only per abilitare i rename.",
-        )
-
-    if dry_run:
-        snapshot = _load(service)
-        if isinstance(snapshot, dict):
-            return snapshot
-        try:
-            plan = planner(snapshot)
-        except RenameError as exc:
-            return _rename_error(exc)
-        authorized = _authorize_files(snapshot, service, plan.modifications)
-        if authorized is not None:
-            return authorized
-        issues = _validate(snapshot, plan, normalize_before)
-        if isinstance(issues, dict):
-            return issues
-        if issues:
-            return validation_failed_response(issues, snapshot)
-        return _success(snapshot, plan, dry_run=True)
+        return read_only_error()
 
     try:
+        if dry_run:
+            prepared = _prepare(service, planner, leftovers, normalize_before)
+            if isinstance(prepared, dict):
+                return prepared
+            return _success(*prepared, dry_run=True)
         with write_lock(service.config.ledger_path):
-            snapshot = _load(service)
-            if isinstance(snapshot, dict):
-                return snapshot
-            try:
-                plan = planner(snapshot)
-            except RenameError as exc:
-                return _rename_error(exc)
-            authorized = _authorize_files(snapshot, service, plan.modifications)
-            if authorized is not None:
-                return authorized
-            issues = _validate(snapshot, plan, normalize_before)
-            if isinstance(issues, dict):
-                return issues
-            if issues:
-                return validation_failed_response(issues, snapshot)
-
-            current = _load(service)
-            if isinstance(current, dict):
-                return current
-            if current.version != snapshot.version:
-                return tool_error(
-                    "VERSION_CONFLICT",
-                    "Il ledger è cambiato durante la validazione.",
-                    "Ricarica ledger_info e riprova.",
-                    details=[
-                        {
-                            "expected": snapshot.version,
-                            "actual": current.version,
-                        }
-                    ],
-                )
-
-            try:
-                commit_files(snapshot.ledger_path, plan.modifications)
-            except TransactionError as exc:
-                return tool_error(
-                    "LEDGER_ERROR",
-                    str(exc),
-                    "La transazione multi-file è stata annullata o richiede "
-                    "recovery. Controlla il ledger e riprova.",
-                )
-            after = _load(service)
-            if isinstance(after, dict):
-                after["error"]["message"] = (
-                    f"Rename applicato ma il ledger non è ricaricabile: {after['error']['message']}"
-                )
-                return after
-            return _success(after, plan, dry_run=False)
+            prepared = _prepare(service, planner, leftovers, normalize_before)
+            if isinstance(prepared, dict):
+                return prepared
+            return _commit(service, *prepared)
     except LockError as exc:
-        lock = lock_path_for(service.config.ledger_path)
-        return tool_error(
-            "LOCKED",
-            str(exc),
-            "Un'altra scrittura è in corso. Riprova tra poco; se il processo è "
-            f"terminato, riprova: il lock viene rilasciato dal sistema operativo ({lock}).",
-        )
+        return locked_error(exc, lock_path_for(service.config.ledger_path))
     except (OSError, StagingError) as exc:
         return tool_error(
             "LEDGER_ERROR",
             f"Impossibile completare il rename: {exc}",
             "Verifica che i file del ledger siano leggibili e riprova.",
         )
+
+
+def _prepare(
+    service: LedgerService,
+    planner: Planner,
+    leftovers: Leftovers,
+    normalize_before: Callable[[Issue], Issue] | None,
+) -> tuple[LedgerSnapshot, RenamePlan] | dict[str, Any]:
+    """Plan, authorize and validate a rename against one snapshot."""
+    snapshot = load_snapshot(service)
+    if isinstance(snapshot, dict):
+        return snapshot
+    try:
+        plan = planner(snapshot)
+    except RenameError as exc:
+        return _rename_error(exc)
+    authorized = _authorize_files(snapshot, service, plan.modifications)
+    if authorized is not None:
+        return authorized
+    if not plan.modifications:
+        return snapshot, plan
+    staged = load_staged_tree(
+        snapshot.ledger_path,
+        snapshot.files,
+        plan.modifications,
+        snapshot.errors,
+        normalize_before=normalize_before,
+    )
+    if staged.issues:
+        return validation_failed_response(staged.issues, snapshot)
+    remaining = leftovers(staged.entries)
+    if remaining:
+        return _incomplete(staged, remaining)
+    return snapshot, plan
+
+
+def _commit(
+    service: LedgerService,
+    snapshot: LedgerSnapshot,
+    plan: RenamePlan,
+) -> dict[str, Any]:
+    current = load_snapshot(service)
+    if isinstance(current, dict):
+        return current
+    if current.version != snapshot.version:
+        return version_conflict_error(snapshot.version, current.version, during_validation=True)
+    try:
+        commit_files(
+            snapshot.ledger_path,
+            plan.modifications,
+            expected_contents=plan.originals,
+        )
+    except TransactionError as exc:
+        return tool_error(
+            "LEDGER_ERROR",
+            str(exc),
+            "La transazione multi-file è stata annullata o richiede "
+            "recovery. Controlla il ledger e riprova.",
+        )
+    after = load_snapshot(service)
+    if isinstance(after, dict):
+        after["error"]["message"] = (
+            f"Rename applicato ma il ledger non è ricaricabile: {after['error']['message']}"
+        )
+        return after
+    return _success(after, plan, dry_run=False)
+
+
+def _incomplete(staged: StagedLoad, remaining: list[Directive]) -> dict[str, Any]:
+    """Refuse a rename that would leave the old name on some entries."""
+    details: list[dict[str, Any]] = []
+    for entry in remaining[:_MAX_LEFTOVER_DETAILS]:
+        file, line = staged.location(entry)
+        details.append(
+            {
+                "type": type(entry).__name__.lower(),
+                "date": entry.date.isoformat(),
+                "file": file,
+                "line": line,
+            }
+        )
+    return tool_error(
+        "RENAME_INCOMPLETE",
+        f"Il rename lascerebbe il vecchio nome su {len(remaining)} direttive; "
+        "nessun file è stato modificato.",
+        "Le direttive nei details usano una forma che il rename non riscrive "
+        "(ad esempio entry generate da plugin). Correggile prima e riprova.",
+        details=details,
+    )
 
 
 def _authorize_files(
@@ -232,27 +264,6 @@ def _authorize_files(
     return None
 
 
-def _validate(
-    snapshot: LedgerSnapshot,
-    plan: RenamePlan,
-    normalize_before: Callable[[Issue], Issue] | None,
-) -> list[Issue] | dict[str, Any]:
-    try:
-        return validate_staged_tree(
-            snapshot.ledger_path,
-            snapshot.files,
-            plan.modifications,
-            snapshot.errors,
-            normalize_before=normalize_before,
-        )
-    except (OSError, StagingError) as exc:
-        return tool_error(
-            "LEDGER_ERROR",
-            f"Impossibile validare il rename: {exc}",
-            "Verifica che i file del ledger siano leggibili.",
-        )
-
-
 def _success(
     snapshot: LedgerSnapshot,
     plan: RenamePlan,
@@ -276,13 +287,6 @@ def _success(
         "ledger_version": snapshot.version,
         "warning_count": len(snapshot.errors),
     }
-
-
-def _load(service: LedgerService) -> LedgerSnapshot | dict[str, Any]:
-    try:
-        return service.load()
-    except (LedgerError, OSError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
 
 
 def _rename_error(error: RenameError) -> dict[str, Any]:

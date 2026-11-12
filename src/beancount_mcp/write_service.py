@@ -13,12 +13,12 @@ from beancount.core.data import Balance, Directive, Pad
 from beancount.parser import parser, printer
 
 from beancount_mcp.accounts import account_infos
-from beancount_mcp.errors import tool_error
+from beancount_mcp.errors import locked_error, read_only_error, tool_error, version_conflict_error
 from beancount_mcp.ledger import (
-    LEDGER_ERROR_HINT,
     LedgerError,
     LedgerService,
     LedgerSnapshot,
+    load_snapshot,
 )
 from beancount_mcp.staging import StagingError, validate_staged_file
 from beancount_mcp.validation import Issue, issue_to_dict, issues_from_errors
@@ -31,9 +31,13 @@ from beancount_mcp.writer import (
     write_lock,
 )
 
-_RECEIPT_PREFIX = "; beancount-mcp-idempotency: "
+RECEIPT_PREFIX = "; beancount-mcp-idempotency: "
+FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin|option)\b")
 
-_FORBIDDEN_LINE_RE = re.compile(r"(?m)^\s*(include|plugin|option)\b")
+
+def contains_receipt(text: str) -> bool:
+    """Return whether ``text`` has a line reserved for idempotency receipts."""
+    return any(line.startswith(RECEIPT_PREFIX.rstrip()) for line in text.split("\n"))
 
 
 def write_inbox_text(
@@ -46,11 +50,7 @@ def write_inbox_text(
 ) -> dict[str, Any]:
     """Append directives to the inbox after full validation."""
     if service.config.read_only:
-        return tool_error(
-            "READ_ONLY",
-            "Il server è in modalità sola lettura.",
-            "Riavvia il server senza --read-only per abilitare le scritture.",
-        )
+        return read_only_error()
 
     if dry_run:
         return _write_inbox_text(
@@ -71,13 +71,7 @@ def write_inbox_text(
                 dry_run=False,
             )
     except LockError as exc:
-        lock = lock_path_for(service.config.ledger_path)
-        return tool_error(
-            "LOCKED",
-            str(exc),
-            "Un'altra scrittura è in corso. Riprova tra poco; se il processo è "
-            f"terminato, riprova: il lock viene rilasciato dal sistema operativo ({lock}).",
-        )
+        return locked_error(exc, lock_path_for(service.config.ledger_path))
 
 
 def _write_inbox_text(
@@ -88,10 +82,9 @@ def _write_inbox_text(
     idempotency_key: str | None,
     dry_run: bool,
 ) -> dict[str, Any]:
-    try:
-        snapshot = service.load()
-    except (LedgerError, OSError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+    snapshot = load_snapshot(service)
+    if isinstance(snapshot, dict):
+        return snapshot
 
     if not snapshot.inbox.included:
         return tool_error(
@@ -128,8 +121,8 @@ def _write_inbox_text(
             )
         key_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
         payload_hash = hashlib.sha256(text.strip("\n").encode("utf-8")).hexdigest()
-        prefix = f"{_RECEIPT_PREFIX}{key_hash} "
-        receipts = [line for line in existing.splitlines() if line.startswith(prefix)]
+        prefix = f"{RECEIPT_PREFIX}{key_hash} "
+        receipts = [line.rstrip("\r") for line in existing.split("\n") if line.startswith(prefix)]
         receipt = f"{prefix}{payload_hash}"
         if receipts:
             if any(line != receipt for line in receipts):
@@ -137,6 +130,16 @@ def _write_inbox_text(
                     "IDEMPOTENCY_CONFLICT",
                     "La chiave è già stata usata con un testo diverso.",
                     "Riusa il testo originale per il retry o scegli una nuova chiave.",
+                )
+            written = append_text("", f"{receipt}\n{text}")
+            if _unix_newlines(written) not in _unix_newlines(existing):
+                return tool_error(
+                    "IDEMPOTENCY_CONFLICT",
+                    "La chiave è già stata usata, ma le direttive scritte allora sono "
+                    "state modificate o rimosse.",
+                    "Non è un retry: controlla lo stato attuale con find_entries e usa "
+                    "una nuova chiave se vuoi scriverle di nuovo.",
+                    details=[{"reason": "entries_changed"}],
                 )
             if not dry_run:
                 try:
@@ -154,17 +157,7 @@ def _write_inbox_text(
             return {**_success(snapshot, entries, inbox_path, dry_run=dry_run), "replayed": True}
 
     if expected_ledger_version is not None and expected_ledger_version != snapshot.version:
-        return tool_error(
-            "VERSION_CONFLICT",
-            "La versione del ledger non coincide con expected_ledger_version.",
-            "Ricarica ledger_info e riprova con la versione corrente.",
-            details=[
-                {
-                    "expected": expected_ledger_version,
-                    "actual": snapshot.version,
-                }
-            ],
-        )
+        return version_conflict_error(expected_ledger_version, snapshot.version)
 
     block = f"{receipt}\n{text}" if receipt else text
     proposed_content = append_text(existing, block)
@@ -195,23 +188,11 @@ def _write_inbox_text(
             would_write_text=text.strip("\n") + "\n",
         )
 
-    try:
-        current = service.load()
-    except (LedgerError, OSError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
-
+    current = load_snapshot(service)
+    if isinstance(current, dict):
+        return current
     if current.version != snapshot.version:
-        return tool_error(
-            "VERSION_CONFLICT",
-            "Il ledger è cambiato durante la validazione.",
-            "Ricarica ledger_info e riprova con la versione corrente.",
-            details=[
-                {
-                    "expected": snapshot.version,
-                    "actual": current.version,
-                }
-            ],
-        )
+        return version_conflict_error(snapshot.version, current.version, during_validation=True)
 
     try:
         atomic_write(inbox_path, proposed_content)
@@ -237,6 +218,10 @@ def _write_inbox_text(
     return result
 
 
+def _unix_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n")
+
+
 def _parse_proposed_text(
     text: str,
     inbox_path: Path,
@@ -247,13 +232,13 @@ def _parse_proposed_text(
             "Il testo non contiene direttive.",
             "Invia una o più direttive Beancount, ad esempio una transazione.",
         )
-    if any(line.startswith(_RECEIPT_PREFIX) for line in text.splitlines()):
+    if contains_receipt(text):
         return tool_error(
             "VALIDATION_FAILED",
             "Il testo contiene un commento riservato per idempotency_key.",
             "Rimuovi i commenti beancount-mcp-idempotency dal testo proposto.",
         )
-    if _FORBIDDEN_LINE_RE.search(text):
+    if FORBIDDEN_LINE_RE.search(text):
         return tool_error(
             "VALIDATION_FAILED",
             "Il testo contiene una direttiva include, plugin o option non ammessa.",

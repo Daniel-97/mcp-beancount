@@ -6,11 +6,11 @@ import hashlib
 import json
 import os
 import shutil
-import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from beancount_mcp import writer
 from beancount_mcp.writer import atomic_write, fsync_directory
 
 _COMMITTED_MARKER = "committed"
@@ -76,12 +76,10 @@ def commit_files(
 
         fsync_directory(backup_dir)
         journal = {"version": 3, "files": entries}
-        _write_atomic_fsync(
+        _write_journal(
             directory / "journal.json",
             json.dumps(journal, ensure_ascii=False, indent=2),
-            mode=0o600,
         )
-        fsync_directory(directory)
 
         new_hashes = {str(path): _sha256(content) for path, content in modifications.items()}
         for path, content in modifications.items():
@@ -213,29 +211,10 @@ def _write_fsync(path: Path, content: str, *, mode: int = 0o600) -> None:
         os.fsync(handle.fileno())
 
 
-def _write_atomic_fsync(path: Path, content: str, *, mode: int = 0o600) -> None:
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=path.parent,
-    )
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(
-            descriptor,
-            "w",
-            encoding="utf-8",
-            newline="",
-        ) as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(temporary_path, mode)
-        os.replace(temporary_path, path)
-        fsync_directory(path.parent)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
+def _write_journal(path: Path, content: str) -> None:
+    # Deliberately not the module-level ``atomic_write``: that name is the
+    # single seam for writes to ledger files, which fault injection replaces.
+    writer.atomic_write(path, content, mode=0o600)
 
 
 def _read_text(path: Path) -> str:
