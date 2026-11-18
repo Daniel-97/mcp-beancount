@@ -294,7 +294,7 @@ def test_init_keeps_inbox_when_sync_fails_after_replace(
     def fail_sync(path: Path) -> None:
         raise OSError("directory sync failed")
 
-    monkeypatch.setattr("beancount_mcp.init.fsync_directory", fail_sync)
+    monkeypatch.setattr("beancount_mcp.writer.fsync_directory", fail_sync)
     main = tmp_path / "main.bean"
     with pytest.raises(InitError, match="directory sync failed"):
         create_ledger(main, "EUR")

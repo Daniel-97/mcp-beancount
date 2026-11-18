@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import os
 import re
-import tempfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from beancount_mcp.writer import fsync_directory
+from beancount_mcp.writer import atomic_write
 
 _CURRENCY_RE = re.compile(r"[A-Z][A-Z0-9'._-]{0,22}[A-Z0-9]")
 
@@ -71,11 +70,7 @@ def create_ledger(ledger_path: Path, currency: str, *, today: date | None = None
         resolved_ledger.parent.mkdir(parents=True, exist_ok=True)
         if inbox_created:
             inbox_path.touch()
-        _write_atomic(
-            resolved_ledger,
-            render_main_ledger(normalized_currency, opening_date),
-            mode=_target_mode(resolved_ledger),
-        )
+        atomic_write(resolved_ledger, render_main_ledger(normalized_currency, opening_date))
     except OSError as exc:
         # A directory fsync can fail after the main file was replaced. Keep
         # its included inbox in that case so a retry/manual check sees a valid tree.
@@ -107,29 +102,3 @@ def _check_target(path: Path) -> None:
             f"Impossibile creare il ledger: {path} esiste già e non è vuoto. "
             "Nessun file è stato modificato."
         )
-
-
-def _target_mode(path: Path) -> int:
-    """Return the mode to use for ``path``, honoring the current umask."""
-    if path.exists():
-        return path.stat().st_mode & 0o777
-    current_umask = os.umask(0)
-    os.umask(current_umask)
-    return 0o666 & ~current_umask
-
-
-def _write_atomic(path: Path, content: str, *, mode: int) -> None:
-    """Write ``content`` to ``path`` without leaving a partial file."""
-    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    temporary_path = Path(temporary_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(temporary_path, mode)
-        os.replace(temporary_path, path)
-        fsync_directory(path.parent)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise

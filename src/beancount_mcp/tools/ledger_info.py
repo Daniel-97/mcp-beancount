@@ -9,13 +9,7 @@ from typing import Any
 from beancount.core.data import Directive, Transaction
 
 from beancount_mcp.accounts import account_infos
-from beancount_mcp.errors import ErrorInfo, error_response
-from beancount_mcp.ledger import (
-    LEDGER_ERROR_HINT,
-    LedgerError,
-    LedgerService,
-    LedgerSnapshot,
-)
+from beancount_mcp.ledger import LedgerError, LedgerService, LedgerSnapshot, ledger_error
 
 TOP_VALUES_LIMIT = 10
 
@@ -25,13 +19,7 @@ def build_ledger_info(service: LedgerService) -> dict[str, Any]:
     try:
         snapshot = service.load()
     except (LedgerError, OSError) as exc:
-        return error_response(
-            ErrorInfo(
-                code="LEDGER_ERROR",
-                message=str(exc),
-                hint=LEDGER_ERROR_HINT,
-            )
-        )
+        return ledger_error(exc)
 
     transactions = [entry for entry in snapshot.entries if isinstance(entry, Transaction)]
     tags = (tag for transaction in transactions for tag in transaction.tags)

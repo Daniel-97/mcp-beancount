@@ -186,6 +186,7 @@ Gli errori sono pensati per essere letti da un LLM. Ogni errore contiene: `code`
 | `PATH_NOT_ALLOWED` | Con il flag attivo, il file è fuori dalla directory del ledger o non è incluso da esso |
 | `ACCOUNT_EXISTS` | L'account che si vuole aprire esiste già ed è aperto |
 | `ACCOUNT_SIMILAR_EXISTS` | Esiste un account aperto con nome molto simile |
+| `RENAME_INCOMPLETE` | Il rename lascerebbe il vecchio nome su alcune direttive; nessun file viene modificato |
 | `QUERY_ERROR` | BQL non valida o istruzione non ammessa |
 | `LIMIT_EXCEEDED` | Parametri oltre i limiti consentiti |
 | `READ_ONLY` | Il server è in modalità sola lettura |

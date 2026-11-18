@@ -8,8 +8,25 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from beancount.core.data import Transaction
+from beancount.core.data import Directive, Transaction
 from beancount.parser import parser
+
+NON_TRANSACTION_DIRECTIVES = frozenset(
+    {
+        "open",
+        "close",
+        "balance",
+        "pad",
+        "note",
+        "document",
+        "price",
+        "event",
+        "query",
+        "custom",
+        "commodity",
+    }
+)
+_DIRECTIVE_HEAD_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(\S+)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,13 +53,43 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def split_lines(text: str) -> list[str]:
+    """Split on ``\\n`` only, keeping line endings.
+
+    Beancount numbers lines by ``\\n``. ``str.splitlines`` also breaks on
+    ``\\r``, form feed, U+2028 and others, which may legally appear inside
+    strings and would shift every following line number.
+    """
+    lines = text.split("\n")
+    last = lines.pop()
+    result = [line + "\n" for line in lines]
+    if last:
+        result.append(last)
+    return result
+
+
+def span_matches_directive(span: DirectiveSpan, directive: Directive) -> bool:
+    """Return whether ``span`` textually starts the given parsed directive.
+
+    Spans and directives are paired by line number. This cheap check on the
+    date and keyword refuses a pairing that would attach an identifier to the
+    text of a different directive.
+    """
+    match = _DIRECTIVE_HEAD_RE.match(span.text)
+    if match is None or match[1] != directive.date.isoformat():
+        return False
+    if isinstance(directive, Transaction):
+        return match[2] not in NON_TRANSACTION_DIRECTIVES
+    return bool(match[2] == type(directive).__name__.lower())
+
+
 def extract_directive_spans(file: Path, text: str) -> list[DirectiveSpan]:
     """Split a Beancount file into directive spans.
 
     A directive starts at a non-empty, non-indented line and ends immediately
     before the next such line. Lines inside multiline strings are kept together.
     """
-    lines = text.splitlines(keepends=True)
+    lines = split_lines(text)
     line_offsets: list[int] = []
     starts: list[int] = []
     offset = 0
@@ -97,20 +144,24 @@ def is_transaction_span(span: DirectiveSpan) -> bool:
     return any(isinstance(entry, Transaction) for entry in entries)
 
 
-def replace_span(text: str, span: DirectiveSpan, new_text: str) -> str:
-    """Replace a span, preserving the original trailing blank lines."""
+def replacement_text(span: DirectiveSpan, new_text: str) -> str:
+    """Return ``new_text`` followed by the span's original trailing blank lines."""
     replacement = new_text.strip("\n")
     if not replacement:
         raise ValueError("La nuova direttiva è vuota.")
-    replacement += "\n"
 
-    original_lines = span.text.splitlines(keepends=True)
+    original_lines = split_lines(span.text)
     last_content = -1
     for index, line in enumerate(original_lines):
         if line.strip():
             last_content = index
     trailing = "".join(original_lines[last_content + 1 :])
-    return text[: span.start_offset] + replacement + trailing + text[span.end_offset :]
+    return replacement + "\n" + trailing
+
+
+def replace_span(text: str, span: DirectiveSpan, new_text: str) -> str:
+    """Replace a span, preserving the original trailing blank lines."""
+    return text[: span.start_offset] + replacement_text(span, new_text) + text[span.end_offset :]
 
 
 def delete_span(text: str, span: DirectiveSpan) -> str:

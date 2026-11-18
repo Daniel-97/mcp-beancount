@@ -14,6 +14,7 @@ from beancount import loader
 from beancount.core.data import BeancountError, Directive
 
 from beancount_mcp.config import Config
+from beancount_mcp.errors import tool_error
 from beancount_mcp.multifile import transaction_dir
 
 
@@ -103,10 +104,13 @@ def inspect_inbox(
 
 
 class LedgerService:
-    """Load the ledger from disk on every request, without caching."""
+    """Load the ledger from disk on every request, without caching its data."""
 
     def __init__(self, config: Config) -> None:
         self._config = config
+        # Only the file list of the last load is remembered: it lets a ledger
+        # whose include graph did not change be verified with a single parse.
+        self._known_files: tuple[Path, ...] = (config.ledger_path,)
 
     @property
     def config(self) -> Config:
@@ -120,11 +124,11 @@ class LedgerService:
         if not ledger_path.is_file():
             raise LedgerError(f"Ledger non trovato: {ledger_path}")
 
-        # Discover includes, then bracket the actual parse with captured bytes
-        # and stat checks. Retry if files or the include graph changed.
-        _, _, discovery = loader.load_file(str(ledger_path))
-        files = tuple(Path(path) for path in discovery.get("include", [str(ledger_path)]))
-        for _ in range(3):
+        # Bracket the parse with captured bytes and stat checks of the files
+        # expected to be included. Retry if they or the include graph changed;
+        # the first load needs one such retry to discover the includes.
+        files = tuple(path for path in self._known_files if path.is_file()) or (ledger_path,)
+        for _ in range(4):
             before = {path: _file_state(path) for path in files}
             contents = {path: path.read_bytes() for path in files}
             entries, errors, options = loader.load_file(str(ledger_path))
@@ -134,6 +138,7 @@ class LedgerService:
                 for path in files
             )
             if stable:
+                self._known_files = loaded_files
                 _check_pending_transaction(ledger_path)
                 return LedgerSnapshot(
                     ledger_path=ledger_path,
@@ -149,6 +154,19 @@ class LedgerService:
         raise LedgerError(
             "Il ledger cambia durante la lettura. Riprova quando i file sono stabili."
         )
+
+
+def ledger_error(error: Exception) -> dict[str, Any]:
+    """Build the response for a ledger that cannot be loaded."""
+    return tool_error("LEDGER_ERROR", str(error), LEDGER_ERROR_HINT)
+
+
+def load_snapshot(service: LedgerService) -> LedgerSnapshot | dict[str, Any]:
+    """Load the ledger, or return the error response to hand to the client."""
+    try:
+        return service.load()
+    except (LedgerError, OSError) as exc:
+        return ledger_error(exc)
 
 
 def _file_state(path: Path) -> tuple[int, int, int, int, int]:

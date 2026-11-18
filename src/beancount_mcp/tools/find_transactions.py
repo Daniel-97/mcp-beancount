@@ -15,9 +15,10 @@ from beancount_mcp.entries import (
     DirectiveSpan,
     entry_id_to_dict,
     extract_directive_spans,
+    span_matches_directive,
 )
 from beancount_mcp.errors import tool_error
-from beancount_mcp.ledger import LEDGER_ERROR_HINT, LedgerError, LedgerService
+from beancount_mcp.ledger import LedgerError, LedgerService, ledger_error
 
 DEFAULT_FIND_LIMIT = 50
 MAX_FIND_LIMIT = 500
@@ -73,12 +74,12 @@ def find_transactions(
     try:
         snapshot = service.load()
     except (LedgerError, OSError) as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return ledger_error(exc)
 
     try:
         spans_by_file = _spans_by_file(snapshot.contents)
     except LedgerError as exc:
-        return tool_error("LEDGER_ERROR", str(exc), LEDGER_ERROR_HINT)
+        return ledger_error(exc)
 
     matches: list[tuple[Transaction, DirectiveSpan]] = []
     for entry in reversed(snapshot.entries):
@@ -142,7 +143,10 @@ def _span_for_entry(
         spans = spans_by_file.get(str(Path(os.path.realpath(filename))))
     if spans is None:
         return None
-    return spans.get(lineno)
+    span = spans.get(lineno)
+    if span is None or not span_matches_directive(span, entry):
+        return None
+    return span
 
 
 def _matches(
